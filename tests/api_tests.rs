@@ -14,8 +14,15 @@ async fn start_test_server(events: Vec<ExtractedEvent>) -> String {
         db.insert_events(&events).expect("failed to insert events");
     }
 
+    let reader = EventStore::open_memory().expect("failed to open in-memory reader db");
+    // Copy events to reader by re-inserting (in-memory DBs are separate)
+    if !events.is_empty() {
+        reader.insert_events(&events).expect("failed to insert events into reader");
+    }
+
     let state = Arc::new(AppState {
-        db: Mutex::new(db),
+        writer: Mutex::new(db),
+        reader: Mutex::new(reader),
         config: StoreConfig::default(),
         meta_url: String::new(),
         client: reqwest::Client::new(),
@@ -56,7 +63,6 @@ fn make_test_events(count: usize, ledger: u32) -> Vec<ExtractedEvent> {
             event_type: EventType::Contract,
             topics_xdr_json: vec![serde_json::json!({"symbol": "transfer"})],
             data_xdr_json: serde_json::json!({"amount": i * 100}),
-            event_xdr_json: serde_json::json!({"type": "contract", "body": {}}),
         })
         .collect()
 }
@@ -83,7 +89,6 @@ fn make_multi_type_events() -> Vec<ExtractedEvent> {
                 serde_json::json!({"address": "GDEF"}),
             ],
             data_xdr_json: serde_json::json!({"i128": {"hi": 0, "lo": 100}}),
-            event_xdr_json: serde_json::json!({"type": "contract"}),
         },
         // Event 1: system event (no contract)
         ExtractedEvent {
@@ -97,7 +102,6 @@ fn make_multi_type_events() -> Vec<ExtractedEvent> {
             event_type: EventType::System,
             topics_xdr_json: vec![serde_json::json!({"symbol": "core_metrics"})],
             data_xdr_json: serde_json::json!({}),
-            event_xdr_json: serde_json::json!({"type": "system"}),
         },
         // Event 2: transfer on contract CB
         ExtractedEvent {
@@ -117,7 +121,6 @@ fn make_multi_type_events() -> Vec<ExtractedEvent> {
                 serde_json::json!({"address": "GDDD"}),
             ],
             data_xdr_json: serde_json::json!({"i128": {"hi": 0, "lo": 200}}),
-            event_xdr_json: serde_json::json!({"type": "contract"}),
         },
         // Event 3: mint on contract CA
         ExtractedEvent {
@@ -136,7 +139,6 @@ fn make_multi_type_events() -> Vec<ExtractedEvent> {
                 serde_json::json!({"address": "GABC"}),
             ],
             data_xdr_json: serde_json::json!({"i128": {"hi": 0, "lo": 500}}),
-            event_xdr_json: serde_json::json!({"type": "contract"}),
         },
         // Event 4: diagnostic on contract CA
         ExtractedEvent {
@@ -152,7 +154,6 @@ fn make_multi_type_events() -> Vec<ExtractedEvent> {
             event_type: EventType::Diagnostic,
             topics_xdr_json: vec![serde_json::json!({"symbol": "diag"})],
             data_xdr_json: serde_json::json!({}),
-            event_xdr_json: serde_json::json!({"type": "diagnostic"}),
         },
     ]
 }

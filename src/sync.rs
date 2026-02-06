@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::db::EventStore;
 use crate::ledger::events::{extract_events, ExtractedEvent};
 use crate::ledger::fetch::{fetch_ledger_raw, parse_ledger_batch};
 use crate::ledger::path::StoreConfig;
+use crate::AppState;
 
 /// Cache TTL: 7 days in seconds.
 const CACHE_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
@@ -20,7 +20,7 @@ pub async fn run_sync(
     client: reqwest::Client,
     meta_url: String,
     store_config: StoreConfig,
-    db: Arc<Mutex<EventStore>>,
+    state: Arc<AppState>,
     start_ledger: Option<u32>,
     parallel_fetches: u32,
 ) {
@@ -30,7 +30,7 @@ pub async fn run_sync(
         None => {
             // Try to resume from where we left off
             let last = {
-                let db = db.lock().unwrap();
+                let db = state.writer.lock().unwrap();
                 db.get_sync_state("last_synced_ledger")
                     .ok()
                     .flatten()
@@ -62,11 +62,11 @@ pub async fn run_sync(
     tracing::info!(start = current_ledger, "starting ledger sync");
 
     // Spawn cleanup task
-    let cleanup_db = Arc::clone(&db);
+    let cleanup_state = Arc::clone(&state);
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(CLEANUP_INTERVAL).await;
-            if let Ok(db) = cleanup_db.lock() {
+            if let Ok(db) = cleanup_state.writer.lock() {
                 match db.cleanup_expired() {
                     Ok(count) if count > 0 => {
                         tracing::info!(count, "cleaned up expired ledger cache entries");
@@ -86,7 +86,7 @@ pub async fn run_sync(
         // Skip any cached ledgers
         loop {
             let cached = {
-                let db = db.lock().unwrap();
+                let db = state.writer.lock().unwrap();
                 db.is_ledger_cached(current_ledger).unwrap_or(false)
             };
             if cached {
@@ -119,7 +119,8 @@ pub async fn run_sync(
                 Ok(events) => {
                     let event_count = events.len();
                     let db_result = (|| -> Result<(), crate::Error> {
-                        let db = db
+                        let db = state
+                            .writer
                             .lock()
                             .map_err(|_| crate::Error::Internal("db lock poisoned".to_string()))?;
                         db.insert_events(&events)?;
@@ -166,6 +167,13 @@ pub async fn run_sync(
                 "synced ledgers"
             );
             current_ledger += advanced;
+
+            // Periodically update query planner statistics
+            if current_ledger % 1000 < parallel_fetches {
+                if let Ok(db) = state.writer.lock() {
+                    let _ = db.analyze();
+                }
+            }
         }
 
         match should_sleep {

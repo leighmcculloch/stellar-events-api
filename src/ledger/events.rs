@@ -42,7 +42,6 @@ pub struct ExtractedEvent {
     pub event_type: EventType,
     pub topics_xdr_json: Vec<serde_json::Value>,
     pub data_xdr_json: serde_json::Value,
-    pub event_xdr_json: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -329,7 +328,6 @@ fn push_event(
     events: &mut Vec<ExtractedEvent>,
 ) {
     let (contract_id, event_type, topics, data) = extract_contract_event(contract_event);
-    let event_xdr_json = serde_json::to_value(contract_event).unwrap_or(serde_json::Value::Null);
 
     events.push(ExtractedEvent {
         ledger_sequence: seq,
@@ -342,7 +340,6 @@ fn push_event(
         event_type,
         topics_xdr_json: topics,
         data_xdr_json: data,
-        event_xdr_json,
     });
 }
 

@@ -460,15 +460,21 @@ pub async fn list_events_post(
 
 /// Fetch and cache historical ledgers on demand, starting at `target_ledger`.
 async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
-    // Collect uncached ledger sequences
+    // Use the reader to check cache (avoids contention with sync writer).
+    // Cap the range at the latest synced ledger — don't try to fetch future ledgers
+    // since the sync task will handle those.
     let uncached: Vec<u32> = {
-        let db = match state.db.lock() {
+        let db = match state.reader.lock() {
             Ok(db) => db,
             Err(_) => return,
         };
-        (target_ledger..target_ledger + BACKFILL_BATCH_SIZE)
-            .filter(|&seq| !db.is_ledger_cached(seq).unwrap_or(true))
-            .collect()
+        let latest = db.latest_ledger_sequence().ok().flatten().unwrap_or(0);
+        if target_ledger > latest {
+            return;
+        }
+        let range = BACKFILL_BATCH_SIZE.min(latest.saturating_sub(target_ledger) + 1);
+        db.find_uncached_ledgers(target_ledger, range)
+            .unwrap_or_default()
     };
 
     if uncached.is_empty() {
@@ -483,7 +489,7 @@ async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
     let results = futures::future::join_all(futures).await;
 
     // Store results
-    let db = match state.db.lock() {
+    let db = match state.writer.lock() {
         Ok(db) => db,
         Err(_) => return,
     };
@@ -563,7 +569,7 @@ async fn list_events(
     };
 
     let result = {
-        let db = state.db.lock().map_err(|_| ApiError::Internal {
+        let db = state.reader.lock().map_err(|_| ApiError::Internal {
             message: "database lock poisoned".to_string(),
         })?;
         db.query_events(&params).map_err(|e| ApiError::Internal {
@@ -586,7 +592,7 @@ async fn list_events(
 /// GET /v1/health
 pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, ApiError> {
     let (earliest, latest) = {
-        let db = state.db.lock().map_err(|_| ApiError::Internal {
+        let db = state.reader.lock().map_err(|_| ApiError::Internal {
             message: "database lock poisoned".to_string(),
         })?;
         let earliest = db

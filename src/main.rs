@@ -74,23 +74,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let sync_db = Arc::new(Mutex::new(EventStore::open(&db_path)?));
+    // Open two connections: writer for sync/backfill, reader for queries.
+    // SQLite WAL mode allows concurrent reads while one writer is active.
+    let writer = EventStore::open(&db_path)?;
+    let reader = EventStore::open_readonly(&db_path)?;
 
     let state = Arc::new(AppState {
-        db: Mutex::new(EventStore::open(&db_path)?),
+        writer: Mutex::new(writer),
+        reader: Mutex::new(reader),
         config: store_config.clone(),
         meta_url: cli.meta_url.clone(),
         client: client.clone(),
     });
 
-    // Start background sync
-    let sync_db_clone = Arc::clone(&sync_db);
+    // Start background sync — uses state.writer via Arc
+    let sync_state = Arc::clone(&state);
     let sync_url = cli.meta_url.clone();
     let sync_config = store_config.clone();
     let start_ledger = cli.start_ledger;
     let parallel_fetches = cli.parallel_fetches;
     tokio::spawn(async move {
-        run_sync(client, sync_url, sync_config, sync_db_clone, start_ledger, parallel_fetches).await;
+        run_sync(
+            client,
+            sync_url,
+            sync_config,
+            sync_state,
+            start_ledger,
+            parallel_fetches,
+        )
+        .await;
     });
 
     // Build and start HTTP server

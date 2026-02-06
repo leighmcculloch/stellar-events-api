@@ -9,8 +9,15 @@ use db::EventStore;
 use ledger::path::StoreConfig;
 
 /// Shared application state.
+///
+/// Uses separate read and write database connections. SQLite in WAL mode allows
+/// concurrent readers while one writer is active. The writer is behind a Mutex
+/// (used by sync and backfill). The reader has its own connection and is also
+/// behind a Mutex (since rusqlite::Connection is not Sync), but read locks are
+/// never blocked by writes in WAL mode.
 pub struct AppState {
-    pub db: Mutex<EventStore>,
+    pub writer: Mutex<EventStore>,
+    pub reader: Mutex<EventStore>,
     pub config: StoreConfig,
     pub meta_url: String,
     pub client: reqwest::Client,
