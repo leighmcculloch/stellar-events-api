@@ -151,6 +151,7 @@ section{margin-bottom:40px}
   <button class="tab" data-tab="bytype">Filter by type</button>
   <button class="tab" data-tab="bytopics">Filter by topics</button>
   <button class="tab" data-tab="bycontract">Filter by contract</button>
+  <button class="tab" data-tab="byledger">With ledger</button>
   <button class="tab" data-tab="pagination">With pagination</button>
 </div>
 
@@ -250,6 +251,28 @@ section{margin-bottom:40px}
   </div>
 </div>
 
+<!-- With ledger -->
+<div class="tab-panel" id="panel-byledger">
+  <div class="toggle-row">
+    <button class="toggle-btn active" data-method="GET" data-panel="byledger">GET</button>
+    <button class="toggle-btn" data-method="POST" data-panel="byledger">POST</button>
+  </div>
+  <div class="request-get" id="req-get-byledger">
+    <textarea class="request-area" rows="1">/v1/events?limit=5&ledger=58000000</textarea>
+  </div>
+  <div class="request-post" id="req-post-byledger" style="display:none">
+    <textarea class="request-area" rows="4">{
+  "limit": 5,
+  "ledger": 58000000
+}</textarea>
+  </div>
+  <button class="submit-btn" data-panel="byledger">Submit<span class="spinner"></span></button>
+  <div class="response-area" id="resp-byledger">
+    <div class="response-label">Response</div>
+    <pre>Click Submit to send a request.</pre>
+  </div>
+</div>
+
 <!-- With pagination -->
 <div class="tab-panel" id="panel-pagination">
   <div class="toggle-row">
@@ -257,12 +280,12 @@ section{margin-bottom:40px}
     <button class="toggle-btn" data-method="POST" data-panel="pagination">POST</button>
   </div>
   <div class="request-get" id="req-get-pagination">
-    <textarea class="request-area" rows="1">/v1/events?limit=3&ledger=1000</textarea>
+    <textarea class="request-area" rows="1">/v1/events?limit=5&after=evt_0058000000_1_0080_0_0000</textarea>
   </div>
   <div class="request-post" id="req-post-pagination" style="display:none">
     <textarea class="request-area" rows="4">{
-  "limit": 3,
-  "ledger": 1000
+  "limit": 5,
+  "after": "evt_0058000000_1_0080_0_0000"
 }</textarea>
   </div>
   <button class="submit-btn" data-panel="pagination">Submit<span class="spinner"></span></button>
