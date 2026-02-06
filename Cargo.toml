@@ -1,0 +1,54 @@
+[package]
+name = "stellar-events-api"
+version = "0.1.0"
+edition = "2021"
+description = "HTTP API for querying Stellar network contract events, inspired by Stripe's API design"
+license = "Apache-2.0"
+
+[dependencies]
+# Web framework
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
+# Stellar XDR
+stellar-xdr = { version = "25", features = ["curr", "std", "serde", "serde_json"] }
+
+# Compression
+zstd = "0.13"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Async utilities
+futures = "0.3"
+
+# Error handling
+thiserror = "2"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Hex encoding
+hex = "0.4"
+
+# URL encoding
+urlencoding = "2"
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
