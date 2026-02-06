@@ -206,7 +206,7 @@ section{margin-bottom:40px}
     <button class="toggle-btn" data-method="POST" data-panel="bytopics">POST</button>
   </div>
   <div class="request-get" id="req-get-bytopics">
-    <textarea class="request-area" rows="1">/v1/events?limit=5&filters=[{"type":"contract","topics":[{"symbol":"transfer"},"*","*"]}]</textarea>
+    <textarea class="request-area" rows="1">/v1/events?limit=5&filters=[{"type":"contract","topics":[{"symbol":"transfer"}]}]</textarea>
   </div>
   <div class="request-post" id="req-post-bytopics" style="display:none">
     <textarea class="request-area" rows="8">{
@@ -214,7 +214,7 @@ section{margin-bottom:40px}
   "filters": [
     {
       "type": "contract",
-      "topics": [{"symbol": "transfer"}, "*", "*"]
+      "topics": [{"symbol": "transfer"}]
     }
   ]
 }</textarea>
