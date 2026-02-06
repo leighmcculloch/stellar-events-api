@@ -2,7 +2,7 @@
 
 An HTTP API for querying contract events from the Stellar network.
 
-Reads ledger data from Stellar's public ledger metadata archive (per [SEP-54](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0054.md)), extracts contract events, and exposes them through a paginated REST API modeled after [Stripe's API conventions](https://docs.stripe.com/api).
+Reads ledger data from Stellar's public ledger metadata archive (per [SEP-54](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0054.md)), extracts contract events, and exposes them through a paginated REST API.
 
 ## Quick start
 
@@ -28,8 +28,9 @@ Returns a paginated list of contract events. Parameters can be passed as query s
 | Parameter | Type | Description |
 |---|---|---|
 | `limit` | integer | Number of events to return (1-100, default 10) |
-| `start_after` | string | Cursor for forward pagination (event ID) |
-| `start_ledger` | integer | Return events from this ledger sequence onward (inclusive) |
+| `after` | string | Cursor for forward pagination (event ID) |
+| `ledger` | integer | Return events from this ledger sequence |
+| `tx_hash` | string | Limit results to events from this transaction hash |
 | `filters` | array | Structured filters (see below). JSON-encoded string for GET, native array for POST |
 
 **Filters:** The `filters` parameter accepts a JSON-encoded array of filter objects. Each filter in the array is OR'd together; conditions within a single filter are AND'd. This enables complex queries like "transfer events on contract A, OR mint events on contract B".
@@ -39,8 +40,7 @@ Each filter object supports:
 | Field | Type | Description |
 |---|---|---|
 | `contract_id` | string | Match events from this contract ID |
-| `type` | string | Match events of this type (`contract`, `system`, `diagnostic`) |
-| `tx_hash` | string | Match events from this transaction hash |
+| `type` | string | Match events of this type (`contract`, `system`) |
 | `topics` | array | Positional topic matching. Each element is an XDR-JSON ScVal or `"*"` (wildcard) |
 
 Topics are matched by position: element 0 of the filter matches against topic 0 of the event, element 1 against topic 1, and so on. The string `"*"` matches any value at that position. The event must have at least as many topics as the filter specifies. Topic values are XDR-JSON ScVals as serialized by the `stellar-xdr` crate (e.g. `{"symbol":"transfer"}`, `{"address":"GABC..."}`).
@@ -54,7 +54,7 @@ GET /v1/events?filters=[
 ]
 ```
 
-If no `start_ledger` or `start_after` is provided, the API defaults to the latest ingested ledger.
+If no `ledger` or `after` is provided, the API defaults to the latest ingested ledger.
 
 **Examples:**
 
@@ -67,19 +67,19 @@ curl 'http://localhost:3000/v1/events'
 All events from ledger 58000000 onward:
 
 ```bash
-curl 'http://localhost:3000/v1/events?start_ledger=58000000'
+curl 'http://localhost:3000/v1/events?ledger=58000000'
 ```
 
 All events for the USDC contract:
 
 ```bash
-curl 'http://localhost:3000/v1/events?start_ledger=58000000&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"}]'
+curl 'http://localhost:3000/v1/events?ledger=58000000&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"}]'
 ```
 
 Transfer events for the USDC contract:
 
 ```bash
-curl 'http://localhost:3000/v1/events?start_ledger=58000000&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75","topics":[{"symbol":"transfer"}]}]'
+curl 'http://localhost:3000/v1/events?ledger=58000000&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75","topics":[{"symbol":"transfer"}]}]'
 ```
 
 Same query using POST with a JSON body:
@@ -88,7 +88,7 @@ Same query using POST with a JSON body:
 curl -X POST 'http://localhost:3000/v1/events' \
   -H 'Content-Type: application/json' \
   -d '{
-    "start_ledger": 58000000,
+    "ledger": 58000000,
     "filters": [
       {
         "contract_id": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
@@ -121,11 +121,11 @@ curl -X POST 'http://localhost:3000/v1/events' \
 }
 ```
 
-**Pagination:** Use the `id` of the last item in `data` as the `start_after` value for the next page. Iterate until `has_more` is `false`.
+**Pagination:** Use the `id` of the last item in `data` as the `after` value for the next page. Iterate until `has_more` is `false`.
 
-**Streaming new events:** Paginate forward until `has_more` is `false`, then keep polling with the last seen `id` as `start_after`. New events will appear as the server syncs new ledgers.
+**Streaming new events:** Paginate forward until `has_more` is `false`, then keep polling with the last seen `id` as `after`. New events will appear as the server syncs new ledgers.
 
-**Error responses** follow Stripe's format:
+**Error responses** use a structured format:
 
 ```json
 {
@@ -174,7 +174,7 @@ docker run -p 3000:3000 -v stellar-data:/data stellar-events-api
 - **Proactive sync**: A background task continuously polls for new ledgers and indexes their events as they appear on the archive. On startup, it resumes from the last synced position or discovers the current network ledger from Horizon.
 - **Storage**: Events are stored in a local SQLite database with indexes on ledger sequence, contract ID, and event type.
 - **XDR representation**: Contract event XDR is serialized using the xdr-json format provided by the `stellar-xdr` crate, matching the Stellar ecosystem's standard JSON representation.
-- **API style**: The REST API follows Stripe's conventions: cursor-based pagination, consistent list envelopes, structured error responses.
+- **API style**: The REST API uses cursor-based pagination, consistent list envelopes, and structured error responses.
 
 ## Development
 

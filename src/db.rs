@@ -146,19 +146,21 @@ impl EventStore {
         Ok(())
     }
 
-    /// Query events with Stripe-style cursor pagination and filtering.
+    /// Query events with cursor-based pagination and filtering.
     pub fn query_events(&self, params: &EventQueryParams) -> Result<EventQueryResult, Error> {
         let mut conditions = Vec::new();
         let mut bind_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         // Cursor-based pagination
-        if let Some(ref after) = params.start_after {
+        if let Some(ref after) = params.after {
             conditions.push("id > ?".to_string());
             bind_values.push(Box::new(after.clone()));
         }
 
-        // Ledger sequence filter — default to latest ledger if no cursor or ledger specified
-        let start_ledger = match (params.start_after.as_ref(), params.start_ledger) {
+        // Ledger sequence filter — pin to a single ledger.
+        // If `ledger` is set, use it. If neither cursor nor ledger is set, default
+        // to the latest ledger in the database.
+        let pinned_ledger = match (params.after.as_ref(), params.ledger) {
             (None, None) => {
                 let max: Option<i64> = self
                     .conn
@@ -169,11 +171,17 @@ impl EventStore {
                     .flatten();
                 max.map(|v| v as u32)
             }
-            _ => params.start_ledger,
+            _ => params.ledger,
         };
-        if let Some(min) = start_ledger {
-            conditions.push("ledger_sequence >= ?".to_string());
-            bind_values.push(Box::new(min as i64));
+        if let Some(seq) = pinned_ledger {
+            conditions.push("ledger_sequence = ?".to_string());
+            bind_values.push(Box::new(seq as i64));
+        }
+
+        // Transaction hash filter (top-level, limits entire result set)
+        if let Some(ref tx_hash) = params.tx_hash {
+            conditions.push("tx_hash = ?".to_string());
+            bind_values.push(Box::new(tx_hash.clone()));
         }
 
         // Structured filters: each filter is OR'd; conditions within are AND'd
@@ -190,11 +198,6 @@ impl EventStore {
                 if let Some(ref et) = filter.event_type {
                     fc.push("event_type = ?".to_string());
                     bind_values.push(Box::new(et.clone()));
-                }
-
-                if let Some(ref tx_hash) = filter.tx_hash {
-                    fc.push("tx_hash = ?".to_string());
-                    bind_values.push(Box::new(tx_hash.clone()));
                 }
 
                 if let Some(ref topics) = filter.topics {
@@ -350,9 +353,6 @@ pub struct EventFilter {
     /// Filter by event type: "contract", "system", or "diagnostic".
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub event_type: Option<String>,
-    /// Filter by transaction hash.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tx_hash: Option<String>,
     /// Positional topic matching. Each element is an XDR-JSON ScVal or the string `"*"`
     /// (wildcard). The filter matches if the event has at least as many topics and each
     /// non-wildcard position matches exactly.
@@ -364,8 +364,10 @@ pub struct EventFilter {
 #[derive(Debug, Default, Clone)]
 pub struct EventQueryParams {
     pub limit: u32,
-    pub start_after: Option<String>,
-    pub start_ledger: Option<u32>,
+    pub after: Option<String>,
+    pub ledger: Option<u32>,
+    /// Filter all results to a single transaction hash.
+    pub tx_hash: Option<String>,
     /// Structured filters. Each filter is OR'd; conditions within are AND'd.
     pub filters: Vec<EventFilter>,
 }

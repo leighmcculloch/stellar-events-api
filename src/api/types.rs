@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::db::EventRow;
 
-/// Stripe-style list response envelope.
+/// Paginated list response envelope.
 #[derive(Debug, Serialize)]
 pub struct ListResponse<T: Serialize> {
     pub url: String,
@@ -52,7 +52,7 @@ impl From<EventRow> for Event {
     }
 }
 
-/// Stripe-style error response.
+/// Structured error response.
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub error: ErrorBody,

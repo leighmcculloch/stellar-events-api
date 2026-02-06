@@ -76,7 +76,7 @@ section{margin-bottom:40px}
 
 <header>
   <h1>Stellar Events API</h1>
-  <p>Query Stellar contract events with a Stripe-style REST API. Filter by event type, contract ID, transaction hash, and topic patterns.</p>
+  <p>Query Stellar contract events via a paginated REST API. Filter by event type, contract ID, transaction hash, and topic patterns.</p>
 </header>
 
 <!-- Endpoint Reference -->
@@ -92,17 +92,17 @@ section{margin-bottom:40px}
 <table>
   <tr><th>Parameter</th><th>Type (GET / POST)</th><th>Description</th></tr>
   <tr><td><code>limit</code></td><td>integer</td><td>Number of events to return (1–100, default 10)</td></tr>
-  <tr><td><code>start_after</code></td><td>string</td><td>Cursor for pagination — the event <code>id</code> to start after</td></tr>
-  <tr><td><code>start_ledger</code></td><td>integer</td><td>Only return events from this ledger sequence onward. Historical ledgers are fetched on demand.</td></tr>
+  <tr><td><code>after</code></td><td>string</td><td>Cursor for pagination — the event <code>id</code> to start after</td></tr>
+  <tr><td><code>ledger</code></td><td>integer</td><td>Only return events from this ledger sequence. Historical ledgers are fetched on demand.</td></tr>
+  <tr><td><code>tx_hash</code></td><td>string</td><td>Limit results to events from this transaction hash</td></tr>
   <tr><td><code>filters</code></td><td>JSON string / array</td><td>Filter objects (see below). GET accepts a JSON-encoded string; POST accepts an array.</td></tr>
 </table>
 
 <h3>Filter Object</h3>
 <table>
   <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-  <tr><td><code>type</code></td><td>string</td><td><code>"contract"</code>, <code>"system"</code>, or <code>"diagnostic"</code></td></tr>
+  <tr><td><code>type</code></td><td>string</td><td><code>"contract"</code> or <code>"system"</code></td></tr>
   <tr><td><code>contract_id</code></td><td>string</td><td>Stellar contract strkey (C…)</td></tr>
-  <tr><td><code>tx_hash</code></td><td>string</td><td>Transaction hash</td></tr>
   <tr><td><code>topics</code></td><td>array</td><td>Positional topic matching. Each element is an XDR-JSON ScVal or <code>"*"</code> (wildcard)</td></tr>
 </table>
 
@@ -257,12 +257,12 @@ section{margin-bottom:40px}
     <button class="toggle-btn" data-method="POST" data-panel="pagination">POST</button>
   </div>
   <div class="request-get" id="req-get-pagination">
-    <textarea class="request-area" rows="1">/v1/events?limit=3&start_ledger=1000</textarea>
+    <textarea class="request-area" rows="1">/v1/events?limit=3&ledger=1000</textarea>
   </div>
   <div class="request-post" id="req-post-pagination" style="display:none">
     <textarea class="request-area" rows="4">{
   "limit": 3,
-  "start_ledger": 1000
+  "ledger": 1000
 }</textarea>
   </div>
   <button class="submit-btn" data-panel="pagination">Submit<span class="spinner"></span></button>
@@ -363,7 +363,7 @@ section{margin-bottom:40px}
 
 
 /// Parse a raw query string into a multi-map (key -> Vec<value>).
-/// Supports both `key=a&key=b` and `key[]=a&key[]=b` styles (Stripe convention).
+/// Supports both `key=a&key=b` and `key[]=a&key[]=b` styles.
 fn parse_multi_params(query: &str) -> HashMap<String, Vec<String>> {
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
     for pair in query.split('&') {
@@ -391,9 +391,11 @@ pub struct ListEventsRequest {
     #[serde(default)]
     limit: Option<u32>,
     #[serde(default)]
-    start_after: Option<String>,
+    after: Option<String>,
     #[serde(default)]
-    start_ledger: Option<u32>,
+    ledger: Option<u32>,
+    #[serde(default)]
+    tx_hash: Option<String>,
     #[serde(default)]
     filters: Vec<EventFilter>,
 }
@@ -414,12 +416,17 @@ pub async fn list_events_get(
         None => None,
     };
 
-    let start_after = multi
-        .get("start_after")
+    let after = multi
+        .get("after")
         .and_then(|v| v.first())
         .cloned();
 
-    let start_ledger = parse_u32_multi(&multi, "start_ledger")?;
+    let ledger = parse_u32_multi(&multi, "ledger")?;
+
+    let tx_hash = multi
+        .get("tx_hash")
+        .and_then(|v| v.first())
+        .cloned();
 
     // Structured filters (JSON-encoded array)
     let filters: Vec<EventFilter> = match multi.get("filters").and_then(|v| v.first()) {
@@ -434,8 +441,9 @@ pub async fn list_events_get(
 
     let req = ListEventsRequest {
         limit,
-        start_after,
-        start_ledger,
+        after,
+        ledger,
+        tx_hash,
         filters,
     };
 
@@ -515,11 +523,11 @@ async fn list_events(
     }
 
     // Validate cursor if provided
-    if let Some(ref cursor) = req.start_after {
+    if let Some(ref cursor) = req.after {
         if crate::ledger::events::parse_event_id(cursor).is_none() {
             return Err(ApiError::BadRequest {
                 message: format!("invalid cursor: {}", cursor),
-                param: Some("start_after".to_string()),
+                param: Some("after".to_string()),
             });
         }
     }
@@ -535,9 +543,9 @@ async fn list_events(
     }
 
     // Determine target ledger for on-demand backfill
-    let target_ledger = if req.start_ledger.is_some() {
-        req.start_ledger
-    } else if let Some(ref cursor) = req.start_after {
+    let target_ledger = if req.ledger.is_some() {
+        req.ledger
+    } else if let Some(ref cursor) = req.after {
         crate::ledger::events::parse_event_id(cursor).map(|(seq, _, _)| seq)
     } else {
         None
@@ -548,8 +556,9 @@ async fn list_events(
 
     let params = EventQueryParams {
         limit,
-        start_after: req.start_after,
-        start_ledger: req.start_ledger,
+        after: req.after,
+        ledger: req.ledger,
+        tx_hash: req.tx_hash,
         filters: req.filters,
     };
 

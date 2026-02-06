@@ -39,14 +39,14 @@ async fn start_test_server(events: Vec<ExtractedEvent>) -> String {
     base_url
 }
 
-/// Helper: create test events with simple topics.
-fn make_test_events(count: usize, start_ledger: u32) -> Vec<ExtractedEvent> {
+/// Helper: create test events with simple topics, all on the same ledger.
+fn make_test_events(count: usize, ledger: u32) -> Vec<ExtractedEvent> {
     (0..count)
         .map(|i| ExtractedEvent {
-            ledger_sequence: start_ledger + i as u32,
-            ledger_closed_at: 1700000000 + (i as i64 * 5),
+            ledger_sequence: ledger,
+            ledger_closed_at: 1700000000,
             phase: EventPhase::Operation,
-            tx_index: 0,
+            tx_index: i as u32,
             event_index: 0,
             tx_hash: format!("{:064x}", i),
             contract_id: Some(format!(
@@ -62,6 +62,7 @@ fn make_test_events(count: usize, start_ledger: u32) -> Vec<ExtractedEvent> {
 }
 
 /// Create events with varied types, contracts, and XDR-JSON ScVal topics.
+/// All events are on ledger 100 so that `ledger=100` returns the full set.
 fn make_multi_type_events() -> Vec<ExtractedEvent> {
     vec![
         // Event 0: transfer from addr_A to addr_B on contract CA
@@ -100,10 +101,10 @@ fn make_multi_type_events() -> Vec<ExtractedEvent> {
         },
         // Event 2: transfer on contract CB
         ExtractedEvent {
-            ledger_sequence: 101,
-            ledger_closed_at: 1700000005,
+            ledger_sequence: 100,
+            ledger_closed_at: 1700000000,
             phase: EventPhase::Operation,
-            tx_index: 0,
+            tx_index: 1,
             event_index: 0,
             tx_hash: "b".repeat(64),
             contract_id: Some(
@@ -120,10 +121,10 @@ fn make_multi_type_events() -> Vec<ExtractedEvent> {
         },
         // Event 3: mint on contract CA
         ExtractedEvent {
-            ledger_sequence: 102,
-            ledger_closed_at: 1700000010,
+            ledger_sequence: 100,
+            ledger_closed_at: 1700000000,
             phase: EventPhase::Operation,
-            tx_index: 0,
+            tx_index: 2,
             event_index: 0,
             tx_hash: "c".repeat(64),
             contract_id: Some(
@@ -139,10 +140,10 @@ fn make_multi_type_events() -> Vec<ExtractedEvent> {
         },
         // Event 4: diagnostic on contract CA
         ExtractedEvent {
-            ledger_sequence: 102,
-            ledger_closed_at: 1700000010,
+            ledger_sequence: 100,
+            ledger_closed_at: 1700000000,
             phase: EventPhase::Operation,
-            tx_index: 0,
+            tx_index: 2,
             event_index: 1,
             tx_hash: "c".repeat(64),
             contract_id: Some(
@@ -189,7 +190,7 @@ async fn test_list_events_with_data() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/events?start_ledger=1000&limit=3", base_url))
+        .get(format!("{}/v1/events?ledger=1000&limit=3", base_url))
         .send()
         .await
         .unwrap();
@@ -218,7 +219,7 @@ async fn test_pagination_forward() {
 
     // First page
     let resp = client
-        .get(format!("{}/v1/events?start_ledger=1000&limit=2", base_url))
+        .get(format!("{}/v1/events?ledger=1000&limit=2", base_url))
         .send()
         .await
         .unwrap();
@@ -231,7 +232,7 @@ async fn test_pagination_forward() {
     // Second page
     let resp = client
         .get(format!(
-            "{}/v1/events?limit=2&start_after={}",
+            "{}/v1/events?limit=2&after={}",
             base_url, last_id
         ))
         .send()
@@ -247,7 +248,7 @@ async fn test_pagination_forward() {
     let last_id = data[1]["id"].as_str().unwrap().to_string();
     let resp = client
         .get(format!(
-            "{}/v1/events?limit=2&start_after={}",
+            "{}/v1/events?limit=2&after={}",
             base_url, last_id
         ))
         .send()
@@ -265,7 +266,7 @@ async fn test_default_limit() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/events?start_ledger=1000", base_url))
+        .get(format!("{}/v1/events?ledger=1000", base_url))
         .send()
         .await
         .unwrap();
@@ -280,7 +281,7 @@ async fn test_default_starts_at_latest_ledger() {
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    // No start_ledger or start_after — should default to latest ledger (1004)
+    // No ledger or after — should default to latest ledger (1000, since all events are on it)
     let resp = client
         .get(format!("{}/v1/events", base_url))
         .send()
@@ -288,46 +289,23 @@ async fn test_default_starts_at_latest_ledger() {
         .unwrap();
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0]["ledger_sequence"], 1004);
+    assert_eq!(data.len(), 5);
+    assert_eq!(data[0]["ledger_sequence"], 1000);
     assert_eq!(body["has_more"], false);
 }
 
 // --- Ledger sequence filter ---
 
 #[tokio::test]
-async fn test_start_ledger() {
+async fn test_ledger_filter() {
     let events = make_multi_type_events();
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    // start_ledger=101 returns events from ledger 101 onward (101 + 102 = 3 events)
+    // ledger=100 returns all 5 events (all on ledger 100)
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=101",
-            base_url
-        ))
-        .send()
-        .await
-        .unwrap();
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    assert_eq!(data.len(), 3);
-    for evt in data {
-        assert!(evt["ledger_sequence"].as_u64().unwrap() >= 101);
-    }
-}
-
-#[tokio::test]
-async fn test_start_ledger_from_beginning() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // start_ledger=100 returns all events (ledgers 100, 101, 102)
-    let resp = client
-        .get(format!(
-            "{}/v1/events?start_ledger=100",
+            "{}/v1/events?ledger=100",
             base_url
         ))
         .send()
@@ -336,6 +314,31 @@ async fn test_start_ledger_from_beginning() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 5);
+    for evt in data {
+        assert_eq!(evt["ledger_sequence"].as_u64().unwrap(), 100);
+    }
+    assert_eq!(body["has_more"], false);
+}
+
+#[tokio::test]
+async fn test_ledger_filter_no_match() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // ledger=999 returns no events (no data on that ledger)
+    let resp = client
+        .get(format!(
+            "{}/v1/events?ledger=999",
+            base_url
+        ))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 0);
+    assert_eq!(body["has_more"], false);
 }
 
 // --- Structured filters ---
@@ -351,7 +354,7 @@ async fn test_filter_by_contract_id() {
     }]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&filters={}",
+            "{}/v1/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -380,7 +383,7 @@ async fn test_filter_by_type() {
     let f = serde_json::json!([{"type": "system"}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&filters={}",
+            "{}/v1/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -401,12 +404,10 @@ async fn test_filter_by_tx_hash() {
     let client = reqwest::Client::new();
 
     let tx_hash = "b".repeat(64);
-    let f = serde_json::json!([{"tx_hash": tx_hash}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
+            "{}/v1/events?ledger=100&tx_hash={}",
+            base_url, tx_hash
         ))
         .send()
         .await
@@ -428,7 +429,7 @@ async fn test_filter_by_topic_positional() {
     let f = serde_json::json!([{"topics": [{"symbol": "transfer"}]}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&filters={}",
+            "{}/v1/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -452,7 +453,7 @@ async fn test_filter_topic_with_wildcard() {
     let f = serde_json::json!([{"topics": [{"symbol": "transfer"}, "*", {"address": "GDEF"}]}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&filters={}",
+            "{}/v1/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -478,7 +479,7 @@ async fn test_filter_topic_too_few_positions() {
         serde_json::json!([{"topics": [{"symbol": "transfer"}, "*", "*", {"symbol": "extra"}]}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&filters={}",
+            "{}/v1/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -509,7 +510,7 @@ async fn test_filters_or_logic() {
     ]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&filters={}",
+            "{}/v1/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -537,7 +538,7 @@ async fn test_filters_and_logic_within() {
     }]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&filters={}",
+            "{}/v1/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -549,7 +550,7 @@ async fn test_filters_and_logic_within() {
     let data = body["data"].as_array().unwrap();
     // Only event 3 matches
     assert_eq!(data.len(), 1);
-    assert_eq!(data[0]["ledger_sequence"], 102);
+    assert_eq!(data[0]["ledger_sequence"], 100);
 }
 
 #[tokio::test]
@@ -564,7 +565,7 @@ async fn test_filters_combined_with_pagination() {
 
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&limit=1&filters={}",
+            "{}/v1/events?ledger=100&limit=1&filters={}",
             base_url, fp
         ))
         .send()
@@ -580,7 +581,7 @@ async fn test_filters_combined_with_pagination() {
     let last_id = data[0]["id"].as_str().unwrap();
     let resp = client
         .get(format!(
-            "{}/v1/events?limit=1&start_after={}&filters={}",
+            "{}/v1/events?limit=1&after={}&filters={}",
             base_url, last_id, fp
         ))
         .send()
@@ -593,16 +594,16 @@ async fn test_filters_combined_with_pagination() {
 }
 
 #[tokio::test]
-async fn test_filters_combined_with_start_ledger() {
+async fn test_filters_combined_with_ledger() {
     let events = make_multi_type_events();
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    // transfer events starting from ledger 101
+    // transfer events on ledger 100
     let f = serde_json::json!([{"topics": [{"symbol": "transfer"}]}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=101&filters={}",
+            "{}/v1/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -612,9 +613,8 @@ async fn test_filters_combined_with_start_ledger() {
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
-    // Only event 2 (ledger 101) has transfer topic at or after ledger 101
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0]["ledger_sequence"], 101);
+    // Events 0 and 2 have {"symbol":"transfer"} topic
+    assert_eq!(data.len(), 2);
 }
 
 #[tokio::test]
@@ -627,7 +627,7 @@ async fn test_filters_all_wildcards() {
     let f = serde_json::json!([{"topics": ["*", "*", "*"]}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&filters={}",
+            "{}/v1/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -647,11 +647,11 @@ async fn test_filters_empty_array() {
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    // Empty filters = no filter constraint, returns all from start_ledger
+    // Empty filters = no filter constraint, returns all from ledger
     let f = serde_json::json!([]);
     let resp = client
         .get(format!(
-            "{}/v1/events?start_ledger=100&filters={}",
+            "{}/v1/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -692,7 +692,7 @@ async fn test_invalid_cursor() {
 
     let resp = client
         .get(format!(
-            "{}/v1/events?start_after=invalid_cursor",
+            "{}/v1/events?after=invalid_cursor",
             base_url
         ))
         .send()
@@ -772,7 +772,7 @@ async fn test_post_list_events() {
         .post(format!("{}/v1/events", base_url))
         .json(&serde_json::json!({
             "limit": 2,
-            "start_ledger": 1000
+            "ledger": 1000
         }))
         .send()
         .await
@@ -794,7 +794,7 @@ async fn test_post_with_filters() {
     let resp = client
         .post(format!("{}/v1/events", base_url))
         .json(&serde_json::json!({
-            "start_ledger": 100,
+            "ledger": 100,
             "filters": [{"contract_id": "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}]
         }))
         .send()
@@ -847,7 +847,7 @@ async fn test_post_empty_body() {
 // --- Response shape ---
 
 #[tokio::test]
-async fn test_stripe_list_envelope_consistency() {
+async fn test_list_envelope_consistency() {
     let base_url = start_test_server(vec![]).await;
     let client = reqwest::Client::new();
 

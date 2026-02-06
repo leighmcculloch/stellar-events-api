@@ -2,7 +2,7 @@
 name = "stellar-events-api"
 version = "0.1.0"
 edition = "2021"
-description = "HTTP API for querying Stellar network contract events, inspired by Stripe's API design"
+description = "HTTP API for querying Stellar network contract events"
 license = "Apache-2.0"
 
 [dependencies]
