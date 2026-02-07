@@ -16,6 +16,10 @@ primary_region = 'iad'
   min_machines_running = 0
   processes = ['app']
 
+[metrics]
+  port = 3000
+  path = "/metrics"
+
 [[vm]]
   size = 'performance-1x'
   memory = '8gb'
