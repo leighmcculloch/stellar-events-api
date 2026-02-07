@@ -26,6 +26,7 @@ async fn start_test_server(events: Vec<ExtractedEvent>) -> String {
         config: StoreConfig::default(),
         meta_url: String::new(),
         client: reqwest::Client::new(),
+        cache_ttl_seconds: 24 * 60 * 60,
     });
 
     let app = api::router(state);

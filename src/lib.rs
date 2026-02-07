@@ -21,6 +21,7 @@ pub struct AppState {
     pub config: StoreConfig,
     pub meta_url: String,
     pub client: reqwest::Client,
+    pub cache_ttl_seconds: i64,
 }
 
 /// Application-wide error type.

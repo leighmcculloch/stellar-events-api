@@ -11,8 +11,6 @@ use crate::db::{EventFilter, EventQueryParams};
 use crate::ledger::events::EventType;
 use crate::{sync, AppState};
 
-/// TTL for on-demand backfilled ledgers: 2 hours.
-const BACKFILL_TTL_SECONDS: i64 = 2 * 60 * 60;
 /// Maximum number of ledgers to backfill per request.
 const BACKFILL_BATCH_SIZE: u32 = 100;
 
@@ -524,7 +522,7 @@ async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
                     tracing::warn!(ledger = seq, error = %e, "backfill: failed to insert events");
                     continue;
                 }
-                if let Err(e) = db.record_ledger_cached(seq, BACKFILL_TTL_SECONDS) {
+                if let Err(e) = db.record_ledger_cached(seq, state.cache_ttl_seconds) {
                     tracing::warn!(ledger = seq, error = %e, "backfill: failed to record cache");
                 }
             }

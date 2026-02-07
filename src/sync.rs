@@ -6,9 +6,6 @@ use crate::ledger::fetch::{fetch_ledger_raw, parse_ledger_batch};
 use crate::ledger::path::StoreConfig;
 use crate::AppState;
 
-/// Cache TTL: 7 days in seconds.
-const CACHE_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
-
 /// How often to poll for new ledgers.
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -124,7 +121,7 @@ pub async fn run_sync(
                             .lock()
                             .map_err(|_| crate::Error::Internal("db lock poisoned".to_string()))?;
                         db.insert_events(&events)?;
-                        db.record_ledger_cached(seq, CACHE_TTL_SECONDS)?;
+                        db.record_ledger_cached(seq, state.cache_ttl_seconds)?;
                         db.set_sync_state("last_synced_ledger", &seq.to_string())?;
                         Ok(())
                     })();

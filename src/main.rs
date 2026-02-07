@@ -42,6 +42,10 @@ struct Cli {
     /// Number of ledgers to fetch concurrently during sync
     #[arg(long, default_value = "10", env = "PARALLEL_FETCHES")]
     parallel_fetches: u32,
+
+    /// How long to keep cached ledger data, in days
+    #[arg(long, default_value = "1", env = "CACHE_TTL_DAYS")]
+    cache_ttl_days: u32,
 }
 
 #[tokio::main]
@@ -79,12 +83,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let writer = EventStore::open(&db_path)?;
     let reader = EventStore::open_readonly(&db_path)?;
 
+    let cache_ttl_seconds = cli.cache_ttl_days as i64 * 24 * 60 * 60;
+
     let state = Arc::new(AppState {
         writer: Mutex::new(writer),
         reader: Mutex::new(reader),
         config: store_config.clone(),
         meta_url: cli.meta_url.clone(),
         client: client.clone(),
+        cache_ttl_seconds,
     });
 
     // Start background sync — uses state.writer via Arc
