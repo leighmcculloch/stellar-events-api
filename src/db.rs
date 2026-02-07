@@ -262,7 +262,7 @@ impl EventStore {
         }
 
         // Transaction hash filter
-        if let Some(ref tx_hash) = params.tx_hash {
+        if let Some(ref tx_hash) = params.tx {
             conditions.push("tx_hash = ?".to_string());
             bind_values.push(Box::new(tx_hash.clone()));
         }
@@ -454,7 +454,7 @@ pub struct EventQueryParams {
     pub after: Option<String>,
     pub ledger: Option<u32>,
     /// Filter all results to a single transaction hash.
-    pub tx_hash: Option<String>,
+    pub tx: Option<String>,
     /// Structured filters. Each filter is OR'd; conditions within are AND'd.
     pub filters: Vec<EventFilter>,
 }

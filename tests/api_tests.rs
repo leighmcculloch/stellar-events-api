@@ -407,7 +407,7 @@ async fn test_filter_by_tx_hash() {
     let tx_hash = "b".repeat(64);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&tx_hash={}",
+            "{}/v1/events?ledger=100&tx={}",
             base_url, tx_hash
         ))
         .send()
@@ -418,6 +418,26 @@ async fn test_filter_by_tx_hash() {
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 1);
     assert_eq!(data[0]["tx_hash"], tx_hash);
+}
+
+#[tokio::test]
+async fn test_tx_without_ledger_returns_error() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/v1/events?tx={}",
+            base_url,
+            "a".repeat(64)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"]["param"], "ledger");
 }
 
 #[tokio::test]

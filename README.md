@@ -30,7 +30,7 @@ Returns a paginated list of contract events. Parameters can be passed as query s
 | `limit` | integer | Number of events to return (1-100, default 10) |
 | `after` | string | Cursor for forward pagination (event ID) |
 | `ledger` | integer | Return events from this ledger sequence |
-| `tx_hash` | string | Limit results to events from this transaction hash |
+| `tx` | string | Limit results to events from this transaction hash |
 | `filters` | array | Structured filters (see below). JSON-encoded string for GET, native array for POST |
 
 **Filters:** The `filters` parameter accepts a JSON-encoded array of filter objects. Each filter in the array is OR'd together; conditions within a single filter are AND'd. This enables complex queries like "transfer events on contract A, OR mint events on contract B".
@@ -138,10 +138,10 @@ curl -X POST 'http://localhost:3000/v1/events' \
 }
 ```
 
-### Server status
+### Server health
 
 ```
-GET /v1/status
+GET /v1/health
 ```
 
 Returns the server's sync state, including the latest ingested ledger.

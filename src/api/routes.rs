@@ -94,7 +94,7 @@ section{margin-bottom:40px}
   <tr><td><code>limit</code></td><td>integer</td><td>Number of events to return (1–100, default 10)</td></tr>
   <tr><td><code>after</code></td><td>string</td><td>Cursor for pagination — the event <code>id</code> to start after</td></tr>
   <tr><td><code>ledger</code></td><td>integer</td><td>Only return events from this ledger sequence. Historical ledgers are fetched on demand.</td></tr>
-  <tr><td><code>tx_hash</code></td><td>string</td><td>Limit results to events from this transaction hash</td></tr>
+  <tr><td><code>tx</code></td><td>string</td><td>Limit results to events from this transaction hash</td></tr>
   <tr><td><code>filters</code></td><td>JSON string / array</td><td>Filter objects (see below). GET accepts a JSON-encoded string; POST accepts an array.</td></tr>
 </table>
 
@@ -418,7 +418,7 @@ pub struct ListEventsRequest {
     #[serde(default)]
     ledger: Option<u32>,
     #[serde(default)]
-    tx_hash: Option<String>,
+    tx: Option<String>,
     #[serde(default)]
     filters: Vec<EventFilter>,
 }
@@ -446,8 +446,8 @@ pub async fn list_events_get(
 
     let ledger = parse_u32_multi(&multi, "ledger")?;
 
-    let tx_hash = multi
-        .get("tx_hash")
+    let tx = multi
+        .get("tx")
         .and_then(|v| v.first())
         .cloned();
 
@@ -466,7 +466,7 @@ pub async fn list_events_get(
         limit,
         after,
         ledger,
-        tx_hash,
+        tx,
         filters,
     };
 
@@ -561,6 +561,14 @@ async fn list_events(
         }
     }
 
+    // tx requires a ledger to scope the search
+    if req.tx.is_some() && req.ledger.is_none() {
+        return Err(ApiError::BadRequest {
+            message: "ledger is required when tx is provided".to_string(),
+            param: Some("ledger".to_string()),
+        });
+    }
+
     // Validate event types within filters
     for filter in &req.filters {
         if let Some(ref t) = filter.event_type {
@@ -587,7 +595,7 @@ async fn list_events(
         limit,
         after: req.after,
         ledger: req.ledger,
-        tx_hash: req.tx_hash,
+        tx: req.tx,
         filters: req.filters,
     };
 
