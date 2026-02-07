@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use clap::Parser;
 use stellar_events_api::api;
@@ -26,10 +25,6 @@ struct Cli {
     /// Bind address
     #[arg(long, default_value = "0.0.0.0", env = "BIND_ADDRESS")]
     bind: String,
-
-    /// Directory for the SQLite database
-    #[arg(long, default_value = "./data", env = "DATA_DIR")]
-    data_dir: PathBuf,
 
     /// Base URL for the ledger metadata store
     #[arg(long, default_value = DEFAULT_META_URL, env = "META_URL")]
@@ -59,12 +54,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
-    // Ensure data directory exists
-    std::fs::create_dir_all(&cli.data_dir)?;
-
-    let db_path = cli.data_dir.join("events.db");
-    tracing::info!(path = %db_path.display(), "opening database");
-
     // Fetch store configuration
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -78,23 +67,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Open two connections: writer for sync/backfill, reader for queries.
-    // SQLite WAL mode allows concurrent reads while one writer is active.
-    let writer = EventStore::open(&db_path)?;
-    let reader = EventStore::open_readonly(&db_path)?;
-
     let cache_ttl_seconds = cli.cache_ttl_days as i64 * 24 * 60 * 60;
+    let store = EventStore::new(cache_ttl_seconds);
+
+    tracing::info!("initialised in-memory event store");
 
     let state = Arc::new(AppState {
-        writer: Mutex::new(writer),
-        reader: Mutex::new(reader),
+        store,
         config: store_config.clone(),
         meta_url: cli.meta_url.clone(),
         client: client.clone(),
-        cache_ttl_seconds,
     });
 
-    // Start background sync — uses state.writer via Arc
+    // Start background sync
     let sync_state = Arc::clone(&state);
     let sync_url = cli.meta_url.clone();
     let sync_config = store_config.clone();

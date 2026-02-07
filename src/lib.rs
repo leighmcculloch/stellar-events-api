@@ -3,25 +3,20 @@ pub mod db;
 pub mod ledger;
 pub mod sync;
 
-use std::sync::Mutex;
-
 use db::EventStore;
 use ledger::path::StoreConfig;
 
 /// Shared application state.
 ///
-/// Uses separate read and write database connections. SQLite in WAL mode allows
-/// concurrent readers while one writer is active. The writer is behind a Mutex
-/// (used by sync and backfill). The reader has its own connection and is also
-/// behind a Mutex (since rusqlite::Connection is not Sync), but read locks are
-/// never blocked by writes in WAL mode.
+/// The in-memory `EventStore` uses `DashMap` internally and is safe to share
+/// across threads without external synchronisation. Reads are lock-free (they
+/// clone an `Arc<LedgerPartition>` and release the shard immediately), while
+/// writes only briefly lock a single shard.
 pub struct AppState {
-    pub writer: Mutex<EventStore>,
-    pub reader: Mutex<EventStore>,
+    pub store: EventStore,
     pub config: StoreConfig,
     pub meta_url: String,
     pub client: reqwest::Client,
-    pub cache_ttl_seconds: i64,
 }
 
 /// Application-wide error type.
@@ -38,9 +33,6 @@ pub enum Error {
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
-
-    #[error("database error: {0}")]
-    Database(#[from] rusqlite::Error),
 
     #[error("ledger {0} not found")]
     LedgerNotFound(u32),

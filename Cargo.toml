@@ -28,8 +28,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 
-# Database
-rusqlite = { version = "0.32", features = ["bundled"] }
+# Concurrent collections
+dashmap = "6"
 
 # Logging
 tracing = "0.1"

@@ -154,9 +154,10 @@ All configuration is via CLI flags or environment variables:
 |---|---|---|---|
 | `--port` | `PORT` | `3000` | HTTP server port |
 | `--bind` | `BIND_ADDRESS` | `0.0.0.0` | Bind address |
-| `--data-dir` | `DATA_DIR` | `./data` | Directory for the SQLite database |
 | `--meta-url` | `META_URL` | *(pubnet S3)* | Base URL for ledger metadata |
 | `--start-ledger` | `START_LEDGER` | *(auto)* | Ledger sequence to start syncing from |
+| `--parallel-fetches` | `PARALLEL_FETCHES` | `10` | Number of ledgers to fetch concurrently |
+| `--cache-ttl-days` | `CACHE_TTL_DAYS` | `1` | How long to keep cached ledger data |
 
 Log level is controlled via the `RUST_LOG` environment variable (e.g., `RUST_LOG=debug`).
 
@@ -164,15 +165,15 @@ Log level is controlled via the `RUST_LOG` environment variable (e.g., `RUST_LOG
 
 ```bash
 docker build -t stellar-events-api .
-docker run -p 3000:3000 -v stellar-data:/data stellar-events-api
+docker run -p 3000:3000 stellar-events-api
 ```
 
 ## Design
 
 - **Data source**: Reads compressed XDR ledger metadata from the Stellar public S3 archive per the SEP-54 specification. No AWS SDK or S3 libraries are used; all access is via plain HTTP.
-- **Caching**: Each ledger's data is cached for 7 days after first retrieval. Expired entries are automatically cleaned up.
-- **Proactive sync**: A background task continuously polls for new ledgers and indexes their events as they appear on the archive. On startup, it resumes from the last synced position or discovers the current network ledger from Horizon.
-- **Storage**: Events are stored in a local SQLite database with indexes on ledger sequence, contract ID, and event type.
+- **Caching**: Each ledger's data is cached in-memory for the configured TTL (default 1 day). Expired partitions are dropped instantly.
+- **Proactive sync**: A background task continuously polls for new ledgers and indexes their events as they appear on the archive. On startup, it discovers the current network ledger from Horizon.
+- **Storage**: Events are stored in-memory, partitioned by ledger sequence. Each partition is an immutable snapshot behind an `Arc`, enabling lock-free concurrent reads with zero serialisation overhead.
 - **XDR representation**: Contract event XDR is serialized using the xdr-json format provided by the `stellar-xdr` crate, matching the Stellar ecosystem's standard JSON representation.
 - **API style**: The REST API uses cursor-based pagination, consistent list envelopes, and structured error responses.
 

@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use stellar_events_api::api;
@@ -9,24 +9,16 @@ use stellar_events_api::AppState;
 
 /// Helper: start a test server and return its base URL.
 async fn start_test_server(events: Vec<ExtractedEvent>) -> String {
-    let db = EventStore::open_memory().expect("failed to open in-memory db");
+    let store = EventStore::new(24 * 60 * 60);
     if !events.is_empty() {
-        db.insert_events(&events).expect("failed to insert events");
-    }
-
-    let reader = EventStore::open_memory().expect("failed to open in-memory reader db");
-    // Copy events to reader by re-inserting (in-memory DBs are separate)
-    if !events.is_empty() {
-        reader.insert_events(&events).expect("failed to insert events into reader");
+        store.insert_events(&events).expect("failed to insert events");
     }
 
     let state = Arc::new(AppState {
-        writer: Mutex::new(db),
-        reader: Mutex::new(reader),
+        store,
         config: StoreConfig::default(),
         meta_url: String::new(),
         client: reqwest::Client::new(),
-        cache_ttl_seconds: 24 * 60 * 60,
     });
 
     let app = api::router(state);

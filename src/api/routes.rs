@@ -481,22 +481,14 @@ pub async fn list_events_post(
 
 /// Fetch and cache historical ledgers on demand, starting at `target_ledger`.
 async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
-    // Use the reader to check cache (avoids contention with sync writer).
     // Cap the range at the latest synced ledger — don't try to fetch future ledgers
     // since the sync task will handle those.
-    let uncached: Vec<u32> = {
-        let db = match state.reader.lock() {
-            Ok(db) => db,
-            Err(_) => return,
-        };
-        let latest = db.latest_ledger_sequence().ok().flatten().unwrap_or(0);
-        if target_ledger > latest {
-            return;
-        }
-        let range = BACKFILL_BATCH_SIZE.min(latest.saturating_sub(target_ledger) + 1);
-        db.find_uncached_ledgers(target_ledger, range)
-            .unwrap_or_default()
-    };
+    let latest = state.store.latest_ledger_sequence().ok().flatten().unwrap_or(0);
+    if target_ledger > latest {
+        return;
+    }
+    let range = BACKFILL_BATCH_SIZE.min(latest.saturating_sub(target_ledger) + 1);
+    let uncached = state.store.find_uncached_ledgers(target_ledger, range).unwrap_or_default();
 
     if uncached.is_empty() {
         return;
@@ -509,20 +501,16 @@ async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
         .collect();
     let results = futures::future::join_all(futures).await;
 
-    // Store results
-    let db = match state.writer.lock() {
-        Ok(db) => db,
-        Err(_) => return,
-    };
+    // Store results directly — no locks needed with the in-memory store.
     for (i, result) in results.into_iter().enumerate() {
         let seq = uncached[i];
         match result {
             Ok(events) => {
-                if let Err(e) = db.insert_events(&events) {
+                if let Err(e) = state.store.insert_events(&events) {
                     tracing::warn!(ledger = seq, error = %e, "backfill: failed to insert events");
                     continue;
                 }
-                if let Err(e) = db.record_ledger_cached(seq, state.cache_ttl_seconds) {
+                if let Err(e) = state.store.record_ledger_cached(seq, 0) {
                     tracing::warn!(ledger = seq, error = %e, "backfill: failed to record cache");
                 }
             }
@@ -597,14 +585,9 @@ async fn list_events(
         filters: req.filters,
     };
 
-    let result = {
-        let db = state.reader.lock().map_err(|_| ApiError::Internal {
-            message: "database lock poisoned".to_string(),
-        })?;
-        db.query_events(&params).map_err(|e| ApiError::Internal {
-            message: format!("database error: {}", e),
-        })?
-    };
+    let result = state.store.query_events(&params).map_err(|e| ApiError::Internal {
+        message: format!("database error: {}", e),
+    })?;
 
     let events: Vec<Event> = result.data.into_iter().map(Event::from).collect();
 
@@ -620,22 +603,12 @@ async fn list_events(
 
 /// GET /v1/health
 pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, ApiError> {
-    let (earliest, latest) = {
-        let db = state.reader.lock().map_err(|_| ApiError::Internal {
-            message: "database lock poisoned".to_string(),
-        })?;
-        let earliest = db
-            .earliest_ledger_sequence()
-            .map_err(|e| ApiError::Internal {
-                message: format!("database error: {}", e),
-            })?;
-        let latest = db
-            .latest_ledger_sequence()
-            .map_err(|e| ApiError::Internal {
-                message: format!("database error: {}", e),
-            })?;
-        (earliest, latest)
-    };
+    let earliest = state.store.earliest_ledger_sequence().map_err(|e| ApiError::Internal {
+        message: format!("database error: {}", e),
+    })?;
+    let latest = state.store.latest_ledger_sequence().map_err(|e| ApiError::Internal {
+        message: format!("database error: {}", e),
+    })?;
 
     let response = StatusResponse {
         status: "ok".to_string(),

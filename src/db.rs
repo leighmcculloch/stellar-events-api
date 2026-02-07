@@ -1,135 +1,165 @@
-use std::path::Path;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use dashmap::DashMap;
 
 use crate::ledger::events::ExtractedEvent;
-use crate::Error;
 
-/// SQLite-backed event store.
+/// In-memory event store, partitioned by ledger sequence.
+///
+/// Each ledger's events are stored in an immutable partition behind an `Arc`,
+/// enabling lock-free concurrent reads. Expired partitions are simply dropped
+/// (O(1) cleanup vs. SQLite's expensive DELETE + VACUUM).
 pub struct EventStore {
-    conn: Connection,
+    /// Ledger sequence -> immutable partition.
+    ledgers: DashMap<u32, Arc<LedgerPartition>>,
+    /// Highest ledger sequence currently stored.
+    latest_ledger: AtomicU32,
+    /// Simple key-value store for sync state.
+    sync_state: DashMap<String, String>,
+    /// Cache TTL in seconds.
+    cache_ttl_seconds: i64,
 }
 
-/// Apply performance-oriented PRAGMAs to the connection.
-fn configure_pragmas(conn: &Connection) -> Result<(), Error> {
-    conn.execute_batch(
-        "
-        PRAGMA journal_mode = WAL;
-        PRAGMA synchronous = NORMAL;
-        PRAGMA cache_size = -64000;
-        PRAGMA mmap_size = 268435456;
-        PRAGMA temp_store = MEMORY;
-        PRAGMA page_size = 8192;
-        PRAGMA auto_vacuum = INCREMENTAL;
-        ",
-    )?;
-    Ok(())
+/// An immutable partition holding all events for a single ledger.
+/// Built once during ingestion, never modified afterward.
+struct LedgerPartition {
+    /// Events sorted by ID for cursor-based pagination.
+    events: Vec<StoredEvent>,
+    /// Unix timestamp when this partition expires.
+    expires_at: i64,
+}
+
+/// Internal event representation optimised for in-memory filtering.
+struct StoredEvent {
+    id: String,
+    ledger_sequence: u32,
+    ledger_closed_at: i64,
+    contract_id: Option<String>,
+    /// 0 = contract, 1 = system, 2 = diagnostic
+    event_type: u8,
+    /// First topic as canonical JSON string (for fast indexed lookups).
+    topic0: Option<String>,
+    topic_count: usize,
+    topics_json: String,
+    data_json: String,
+    tx_hash: String,
+}
+
+impl StoredEvent {
+    fn to_event_row(&self) -> EventRow {
+        let event_type = match self.event_type {
+            0 => "contract",
+            1 => "system",
+            2 => "diagnostic",
+            _ => "unknown",
+        };
+        EventRow {
+            id: self.id.clone(),
+            ledger_sequence: self.ledger_sequence,
+            ledger_closed_at: self.ledger_closed_at,
+            contract_id: self.contract_id.clone(),
+            event_type: event_type.to_string(),
+            topics_json: self.topics_json.clone(),
+            data_json: self.data_json.clone(),
+            tx_hash: self.tx_hash.clone(),
+        }
+    }
+
+    /// Check whether this event matches a single filter (all conditions AND'd).
+    fn matches_filter(&self, filter: &EventFilter) -> bool {
+        if let Some(ref cid) = filter.contract_id {
+            match &self.contract_id {
+                Some(eid) if eid == cid => {}
+                _ => return false,
+            }
+        }
+
+        if let Some(ref et) = filter.event_type {
+            let code = match et.as_str() {
+                "contract" => 0u8,
+                "system" => 1,
+                "diagnostic" => 2,
+                _ => return false,
+            };
+            if self.event_type != code {
+                return false;
+            }
+        }
+
+        if let Some(ref topics) = filter.topics {
+            if !topics.is_empty() {
+                if self.topic_count < topics.len() {
+                    return false;
+                }
+
+                // Check topic0 from the pre-extracted field
+                if let Some(ref topic_val) = topics.first() {
+                    if topic_val.as_str() != Some("*") {
+                        let expected = serde_json::to_string(topic_val).unwrap_or_default();
+                        match &self.topic0 {
+                            Some(t0) if *t0 == expected => {}
+                            _ => return false,
+                        }
+                    }
+                }
+
+                // Check topics at positions >= 1 by parsing topics_json
+                if topics.len() > 1 {
+                    let parsed: Vec<serde_json::Value> =
+                        match serde_json::from_str(&self.topics_json) {
+                            Ok(v) => v,
+                            Err(_) => return false,
+                        };
+                    for (i, topic_val) in topics.iter().enumerate().skip(1) {
+                        if topic_val.as_str() == Some("*") {
+                            continue;
+                        }
+                        match parsed.get(i) {
+                            Some(actual) if actual == topic_val => {}
+                            _ => return false,
+                        }
+                    }
+                }
+            }
+        }
+
+        true
+    }
 }
 
 impl EventStore {
-    /// Open or create the database at the given path.
-    pub fn open(path: &Path) -> Result<Self, Error> {
-        let conn = Connection::open(path)?;
-        configure_pragmas(&conn)?;
-        let store = Self { conn };
-        store.migrate()?;
-        Ok(store)
+    /// Create a new in-memory event store.
+    pub fn new(cache_ttl_seconds: i64) -> Self {
+        Self {
+            ledgers: DashMap::new(),
+            latest_ledger: AtomicU32::new(0),
+            sync_state: DashMap::new(),
+            cache_ttl_seconds,
+        }
     }
 
-    /// Open a read-only connection (for query serving).
-    pub fn open_readonly(path: &Path) -> Result<Self, Error> {
-        let conn = Connection::open_with_flags(
-            path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
-        configure_pragmas(&conn)?;
-        let store = Self { conn };
-        Ok(store)
-    }
-
-    /// Open an in-memory database (for testing).
-    pub fn open_memory() -> Result<Self, Error> {
-        let conn = Connection::open_in_memory()?;
-        configure_pragmas(&conn)?;
-        let store = Self { conn };
-        store.migrate()?;
-        Ok(store)
-    }
-
-    fn migrate(&self) -> Result<(), Error> {
-        // Check if we need to migrate from the old schema
-        let has_event_json: bool = self
-            .conn
-            .prepare("SELECT 1 FROM pragma_table_info('events') WHERE name='event_json'")?
-            .exists([])?;
-
-        if has_event_json {
-            // Old schema detected — drop and recreate
-            self.conn.execute_batch("DROP TABLE IF EXISTS events;")?;
+    /// Insert extracted events into the store, grouped by ledger.
+    pub fn insert_events(&self, events: &[ExtractedEvent]) -> Result<(), crate::Error> {
+        // Group events by ledger sequence.
+        let mut by_ledger: HashMap<u32, Vec<&ExtractedEvent>> = HashMap::new();
+        for event in events {
+            by_ledger
+                .entry(event.ledger_sequence)
+                .or_default()
+                .push(event);
         }
 
-        self.conn.execute_batch(
-            "
-            CREATE TABLE IF NOT EXISTS events (
-                id TEXT NOT NULL,
-                ledger_sequence INTEGER NOT NULL,
-                ledger_closed_at INTEGER NOT NULL,
-                contract_id TEXT,
-                event_type INTEGER NOT NULL DEFAULT 0,
-                topic0 TEXT,
-                topic_count INTEGER NOT NULL DEFAULT 0,
-                topics_json TEXT NOT NULL,
-                data_json TEXT NOT NULL,
-                tx_hash TEXT NOT NULL
-            );
+        for (ledger_seq, ledger_events) in by_ledger {
+            // Skip if already cached (idempotent).
+            if self.ledgers.contains_key(&ledger_seq) {
+                continue;
+            }
 
-            -- Primary lookup: ledger + id ordering (covers ledger= queries with ORDER BY id)
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_events_pk ON events(id);
-            CREATE INDEX IF NOT EXISTS idx_events_ledger_id ON events(ledger_sequence, id);
+            let mut stored: Vec<StoredEvent> = Vec::with_capacity(ledger_events.len());
 
-            -- Contract filter: narrows within a ledger, includes id for ordering
-            CREATE INDEX IF NOT EXISTS idx_events_contract_ledger ON events(contract_id, ledger_sequence, id);
-
-            -- Topic0 filter: fast first-topic lookup
-            CREATE INDEX IF NOT EXISTS idx_events_topic0_ledger ON events(topic0, ledger_sequence, id);
-
-            -- tx_hash filter
-            CREATE INDEX IF NOT EXISTS idx_events_tx ON events(tx_hash, id);
-
-            CREATE TABLE IF NOT EXISTS ledger_cache (
-                ledger_sequence INTEGER PRIMARY KEY,
-                fetched_at INTEGER NOT NULL,
-                expires_at INTEGER NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS sync_state (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            ",
-        )?;
-
-        // Drop legacy indexes that are now superseded
-        self.conn.execute_batch(
-            "
-            DROP INDEX IF EXISTS idx_events_ledger;
-            DROP INDEX IF EXISTS idx_events_contract;
-            DROP INDEX IF EXISTS idx_events_type;
-            DROP INDEX IF EXISTS idx_events_id;
-            ",
-        )?;
-
-        Ok(())
-    }
-
-    /// Insert extracted events into the database.
-    pub fn insert_events(&self, events: &[ExtractedEvent]) -> Result<(), Error> {
-        let tx = self.conn.unchecked_transaction()?;
-        {
-            let mut stmt = tx.prepare_cached(
-                "INSERT OR IGNORE INTO events (id, ledger_sequence, ledger_closed_at, contract_id, event_type, topic0, topic_count, topics_json, data_json, tx_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            )?;
-            for event in events {
+            for event in &ledger_events {
                 let id = crate::ledger::events::event_id(
                     event.ledger_sequence,
                     event.phase,
@@ -138,229 +168,193 @@ impl EventStore {
                 );
                 let topics_json = serde_json::to_string(&event.topics_xdr_json)?;
                 let data_json = serde_json::to_string(&event.data_xdr_json)?;
-                // Extract topic0 as a canonical JSON string for indexed lookups
                 let topic0: Option<String> = event
                     .topics_xdr_json
                     .first()
                     .map(|v| serde_json::to_string(v).unwrap_or_default());
-                let topic_count = event.topics_xdr_json.len() as i32;
-                let event_type_int = match event.event_type {
-                    crate::ledger::events::EventType::Contract => 0i32,
-                    crate::ledger::events::EventType::System => 1i32,
-                    crate::ledger::events::EventType::Diagnostic => 2i32,
+                let topic_count = event.topics_xdr_json.len();
+                let event_type = match event.event_type {
+                    crate::ledger::events::EventType::Contract => 0u8,
+                    crate::ledger::events::EventType::System => 1u8,
+                    crate::ledger::events::EventType::Diagnostic => 2u8,
                 };
-                stmt.execute(params![
+
+                stored.push(StoredEvent {
                     id,
-                    event.ledger_sequence,
-                    event.ledger_closed_at,
-                    event.contract_id,
-                    event_type_int,
+                    ledger_sequence: event.ledger_sequence,
+                    ledger_closed_at: event.ledger_closed_at,
+                    contract_id: event.contract_id.clone(),
+                    event_type,
                     topic0,
                     topic_count,
                     topics_json,
                     data_json,
-                    event.tx_hash,
-                ])?;
+                    tx_hash: event.tx_hash.clone(),
+                });
             }
+
+            // Sort by ID for cursor-based pagination.
+            stored.sort_by(|a, b| a.id.cmp(&b.id));
+
+            let now = chrono::Utc::now().timestamp();
+            let partition = Arc::new(LedgerPartition {
+                events: stored,
+                expires_at: now + self.cache_ttl_seconds,
+            });
+
+            self.ledgers.insert(ledger_seq, partition);
+
+            // Update latest ledger tracker.
+            self.latest_ledger.fetch_max(ledger_seq, Ordering::Relaxed);
         }
-        tx.commit()?;
+
         Ok(())
     }
 
-    /// Record that a ledger has been cached.
+    /// Record that a ledger has been cached (sets TTL).
     pub fn record_ledger_cached(
         &self,
         ledger_sequence: u32,
-        ttl_seconds: i64,
-    ) -> Result<(), Error> {
-        let now = chrono::Utc::now().timestamp();
-        self.conn.execute(
-            "INSERT OR REPLACE INTO ledger_cache (ledger_sequence, fetched_at, expires_at) VALUES (?1, ?2, ?3)",
-            params![ledger_sequence, now, now + ttl_seconds],
-        )?;
+        _ttl_seconds: i64,
+    ) -> Result<(), crate::Error> {
+        // In the in-memory store, TTL is set during insert_events.
+        // This method exists for API compatibility. If the ledger was inserted
+        // without events (empty ledger), record it now.
+        if !self.ledgers.contains_key(&ledger_sequence) {
+            let now = chrono::Utc::now().timestamp();
+            let partition = Arc::new(LedgerPartition {
+                events: Vec::new(),
+                expires_at: now + self.cache_ttl_seconds,
+            });
+            self.ledgers.insert(ledger_sequence, partition);
+            self.latest_ledger
+                .fetch_max(ledger_sequence, Ordering::Relaxed);
+        }
         Ok(())
     }
 
     /// Check if a ledger is cached and not expired.
-    pub fn is_ledger_cached(&self, ledger_sequence: u32) -> Result<bool, Error> {
+    pub fn is_ledger_cached(&self, ledger_sequence: u32) -> Result<bool, crate::Error> {
         let now = chrono::Utc::now().timestamp();
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM ledger_cache WHERE ledger_sequence = ?1 AND expires_at > ?2",
-            params![ledger_sequence, now],
-            |row| row.get(0),
-        )?;
-        Ok(count > 0)
+        Ok(self
+            .ledgers
+            .get(&ledger_sequence)
+            .is_some_and(|p| p.expires_at > now))
     }
 
-    /// Find ledger sequences in the given range that are NOT cached (single query).
-    pub fn find_uncached_ledgers(&self, start: u32, count: u32) -> Result<Vec<u32>, Error> {
+    /// Find ledger sequences in the given range that are NOT cached.
+    pub fn find_uncached_ledgers(&self, start: u32, count: u32) -> Result<Vec<u32>, crate::Error> {
         let now = chrono::Utc::now().timestamp();
         let end = start + count;
-        // Get the set of cached ledgers in one query
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT ledger_sequence FROM ledger_cache WHERE ledger_sequence >= ?1 AND ledger_sequence < ?2 AND expires_at > ?3",
-        )?;
-        let cached: std::collections::HashSet<u32> = stmt
-            .query_map(params![start, end, now], |row| {
-                row.get::<_, i64>(0).map(|v| v as u32)
-            })?
-            .collect::<Result<_, _>>()?;
-
-        Ok((start..end).filter(|seq| !cached.contains(seq)).collect())
+        Ok((start..end)
+            .filter(|seq| self.ledgers.get(seq).is_none_or(|p| p.expires_at <= now))
+            .collect())
     }
 
-    /// Get or set sync state.
-    pub fn get_sync_state(&self, key: &str) -> Result<Option<String>, Error> {
-        let result: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT value FROM sync_state WHERE key = ?1",
-                params![key],
-                |row| row.get(0),
-            )
-            .optional()?;
-        Ok(result)
+    /// Get sync state value.
+    pub fn get_sync_state(&self, key: &str) -> Result<Option<String>, crate::Error> {
+        Ok(self.sync_state.get(key).map(|v| v.value().clone()))
     }
 
-    pub fn set_sync_state(&self, key: &str, value: &str) -> Result<(), Error> {
-        self.conn.execute(
-            "INSERT OR REPLACE INTO sync_state (key, value) VALUES (?1, ?2)",
-            params![key, value],
-        )?;
+    /// Set sync state value.
+    pub fn set_sync_state(&self, key: &str, value: &str) -> Result<(), crate::Error> {
+        self.sync_state.insert(key.to_string(), value.to_string());
         Ok(())
     }
 
     /// Query events with cursor-based pagination and filtering.
-    pub fn query_events(&self, params: &EventQueryParams) -> Result<EventQueryResult, Error> {
-        let mut conditions = Vec::new();
-        let mut bind_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-
-        // Cursor-based pagination
-        if let Some(ref after) = params.after {
-            conditions.push("id > ?".to_string());
-            bind_values.push(Box::new(after.clone()));
-        }
-
-        // Ledger sequence filter — pin to a single ledger.
+    pub fn query_events(
+        &self,
+        params: &EventQueryParams,
+    ) -> Result<EventQueryResult, crate::Error> {
+        // Determine the pinned ledger.
         let pinned_ledger = match (params.after.as_ref(), params.ledger) {
             (None, None) => {
-                // Use ledger_cache (small PK-indexed table) for fast MAX lookup
-                let max: Option<i64> = self
-                    .conn
-                    .query_row("SELECT MAX(ledger_sequence) FROM ledger_cache", [], |row| {
-                        row.get(0)
-                    })
-                    .optional()?
-                    .flatten();
-                max.map(|v| v as u32)
+                // Auto-select the latest ledger.
+                let latest = self.latest_ledger.load(Ordering::Relaxed);
+                if latest == 0 {
+                    None
+                } else {
+                    Some(latest)
+                }
             }
             _ => params.ledger,
         };
+
+        // If we have a pinned ledger, query that single partition.
         if let Some(seq) = pinned_ledger {
-            conditions.push("ledger_sequence = ?".to_string());
-            bind_values.push(Box::new(seq as i64));
+            return self.query_single_ledger(seq, params);
         }
 
-        // Transaction hash filter
-        if let Some(ref tx_hash) = params.tx {
-            conditions.push("tx_hash = ?".to_string());
-            bind_values.push(Box::new(tx_hash.clone()));
+        // Cross-ledger query (after cursor provided, no ledger pin).
+        // Parse cursor to find starting ledger, then scan forward.
+        if let Some(ref after) = params.after {
+            return self.query_cross_ledger(after, params);
         }
 
-        // Structured filters: each filter is OR'd; conditions within are AND'd
-        if !params.filters.is_empty() {
-            let mut filter_clauses = Vec::new();
-            for filter in &params.filters {
-                let mut fc = Vec::new();
+        // No ledger, no cursor — return empty.
+        Ok(EventQueryResult {
+            data: Vec::new(),
+            has_more: false,
+        })
+    }
 
-                if let Some(ref cid) = filter.contract_id {
-                    fc.push("contract_id = ?".to_string());
-                    bind_values.push(Box::new(cid.clone()));
-                }
-
-                if let Some(ref et) = filter.event_type {
-                    let et_int = match et.as_str() {
-                        "contract" => 0i32,
-                        "system" => 1i32,
-                        "diagnostic" => 2i32,
-                        _ => -1i32,
-                    };
-                    fc.push("event_type = ?".to_string());
-                    bind_values.push(Box::new(et_int));
-                }
-
-                if let Some(ref topics) = filter.topics {
-                    if !topics.is_empty() {
-                        // Use the indexed topic_count column instead of json_array_length
-                        fc.push(format!("topic_count >= {}", topics.len()));
-
-                        // Use the indexed topic0 column for position 0 lookups
-                        for (i, topic) in topics.iter().enumerate() {
-                            if topic.as_str() == Some("*") {
-                                continue;
-                            }
-                            let topic_json = serde_json::to_string(topic).unwrap_or_default();
-                            if i == 0 {
-                                // Use the dedicated indexed column
-                                fc.push("topic0 = ?".to_string());
-                            } else {
-                                fc.push(format!("json_extract(topics_json, '$[{}]') = json(?)", i));
-                            }
-                            bind_values.push(Box::new(topic_json));
-                        }
-                    }
-                }
-
-                if fc.is_empty() {
-                    filter_clauses.push("1=1".to_string());
-                } else {
-                    filter_clauses.push(format!("({})", fc.join(" AND ")));
-                }
+    /// Query events within a single ledger partition.
+    fn query_single_ledger(
+        &self,
+        ledger_seq: u32,
+        params: &EventQueryParams,
+    ) -> Result<EventQueryResult, crate::Error> {
+        let partition = match self.ledgers.get(&ledger_seq) {
+            Some(p) => Arc::clone(p.value()),
+            None => {
+                return Ok(EventQueryResult {
+                    data: Vec::new(),
+                    has_more: false,
+                })
             }
-            conditions.push(format!("({})", filter_clauses.join(" OR ")));
-        }
-
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conditions.join(" AND "))
         };
 
-        // Fetch one extra to determine has_more
-        let fetch_limit = params.limit + 1;
+        let events = &partition.events;
+        let fetch_limit = params.limit as usize + 1;
 
-        let sql = format!(
-            "SELECT id, ledger_sequence, ledger_closed_at, contract_id, event_type, topics_json, data_json, tx_hash FROM events {} ORDER BY id ASC LIMIT ?",
-            where_clause
-        );
+        // Find start position based on cursor.
+        let start = match &params.after {
+            Some(after) => {
+                // Binary search for the first event with id > after.
+                match events.binary_search_by(|e| e.id.as_str().cmp(after.as_str())) {
+                    Ok(pos) => pos + 1, // Found exact match, start after it.
+                    Err(pos) => pos,    // Not found, insertion point is the start.
+                }
+            }
+            None => 0,
+        };
 
-        bind_values.push(Box::new(fetch_limit as i64));
+        let mut results: Vec<EventRow> = Vec::with_capacity(fetch_limit.min(events.len()));
 
-        let mut stmt = self.conn.prepare_cached(&sql)?;
-        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-            bind_values.iter().map(|v| v.as_ref()).collect();
+        for event in events.iter().skip(start) {
+            if results.len() >= fetch_limit {
+                break;
+            }
 
-        let rows = stmt.query_map(bind_refs.as_slice(), |row| {
-            let event_type_int: i32 = row.get(4)?;
-            let event_type_str = match event_type_int {
-                0 => "contract",
-                1 => "system",
-                2 => "diagnostic",
-                _ => "unknown",
-            };
-            Ok(EventRow {
-                id: row.get(0)?,
-                ledger_sequence: row.get::<_, i64>(1)? as u32,
-                ledger_closed_at: row.get(2)?,
-                contract_id: row.get(3)?,
-                event_type: event_type_str.to_string(),
-                topics_json: row.get(5)?,
-                data_json: row.get(6)?,
-                tx_hash: row.get(7)?,
-            })
-        })?;
+            // Apply tx_hash filter.
+            if let Some(ref tx) = params.tx {
+                if event.tx_hash != *tx {
+                    continue;
+                }
+            }
 
-        let mut results: Vec<EventRow> = rows.collect::<Result<Vec<_>, _>>()?;
+            // Apply structured filters (OR across filters, AND within each).
+            if !params.filters.is_empty() {
+                let matches = params.filters.iter().any(|f| event.matches_filter(f));
+                if !matches {
+                    continue;
+                }
+            }
+
+            results.push(event.to_event_row());
+        }
+
         let has_more = results.len() > params.limit as usize;
         if has_more {
             results.truncate(params.limit as usize);
@@ -372,60 +366,142 @@ impl EventStore {
         })
     }
 
-    /// Get the highest ledger sequence in the database.
-    pub fn latest_ledger_sequence(&self) -> Result<Option<u32>, Error> {
-        let result: Option<i64> = self
-            .conn
-            .query_row("SELECT MAX(ledger_sequence) FROM ledger_cache", [], |row| {
-                row.get(0)
-            })
-            .optional()?
-            .flatten();
-        Ok(result.map(|v| v as u32))
-    }
+    /// Query across multiple ledgers when a cursor is provided without a ledger pin.
+    fn query_cross_ledger(
+        &self,
+        after: &str,
+        params: &EventQueryParams,
+    ) -> Result<EventQueryResult, crate::Error> {
+        // Get sorted ledger sequences.
+        let mut ledger_seqs: Vec<u32> = self.ledgers.iter().map(|kv| *kv.key()).collect();
+        ledger_seqs.sort_unstable();
 
-    /// Get the lowest ledger sequence in the (non-expired) cache.
-    pub fn earliest_ledger_sequence(&self) -> Result<Option<u32>, Error> {
-        let now = chrono::Utc::now().timestamp();
-        let result: Option<i64> = self
-            .conn
-            .query_row(
-                "SELECT MIN(ledger_sequence) FROM ledger_cache WHERE expires_at > ?1",
-                params![now],
-                |row| row.get(0),
-            )
-            .optional()?
-            .flatten();
-        Ok(result.map(|v| v as u32))
-    }
+        // Parse cursor to determine starting ledger.
+        let cursor_ledger = crate::ledger::events::parse_event_id(after).map(|(seq, _, _)| seq);
 
-    /// Clean up expired cache entries and their events.
-    pub fn cleanup_expired(&self) -> Result<u64, Error> {
-        let now = chrono::Utc::now().timestamp();
+        let fetch_limit = params.limit as usize + 1;
+        let mut results: Vec<EventRow> = Vec::with_capacity(fetch_limit);
 
-        let tx = self.conn.unchecked_transaction()?;
-        // Delete events whose ledger is expired in one batch
-        tx.execute(
-            "DELETE FROM events WHERE ledger_sequence IN (SELECT ledger_sequence FROM ledger_cache WHERE expires_at <= ?1)",
-            params![now],
-        )?;
-        let deleted = tx.execute(
-            "DELETE FROM ledger_cache WHERE expires_at <= ?1",
-            params![now],
-        )?;
-        tx.commit()?;
+        for &seq in &ledger_seqs {
+            // Skip ledgers before the cursor's ledger.
+            if let Some(cl) = cursor_ledger {
+                if seq < cl {
+                    continue;
+                }
+            }
 
-        // Reclaim freed pages
-        if deleted > 0 {
-            let _ = self.conn.execute_batch("PRAGMA incremental_vacuum;");
+            if results.len() >= fetch_limit {
+                break;
+            }
+
+            let single_params = EventQueryParams {
+                limit: (fetch_limit - results.len()) as u32,
+                after: if Some(seq) == cursor_ledger || cursor_ledger.is_none() {
+                    Some(after.to_string())
+                } else {
+                    None
+                },
+                ledger: None,
+                tx: params.tx.clone(),
+                filters: params.filters.clone(),
+            };
+
+            let partition = match self.ledgers.get(&seq) {
+                Some(p) => Arc::clone(p.value()),
+                None => continue,
+            };
+
+            let events = &partition.events;
+            let start = match &single_params.after {
+                Some(cursor) => {
+                    match events.binary_search_by(|e| e.id.as_str().cmp(cursor.as_str())) {
+                        Ok(pos) => pos + 1,
+                        Err(pos) => pos,
+                    }
+                }
+                None => 0,
+            };
+
+            for event in events.iter().skip(start) {
+                if results.len() >= fetch_limit {
+                    break;
+                }
+
+                if let Some(ref tx) = params.tx {
+                    if event.tx_hash != *tx {
+                        continue;
+                    }
+                }
+
+                if !params.filters.is_empty() {
+                    let matches = params.filters.iter().any(|f| event.matches_filter(f));
+                    if !matches {
+                        continue;
+                    }
+                }
+
+                results.push(event.to_event_row());
+            }
         }
 
-        Ok(deleted as u64)
+        let has_more = results.len() > params.limit as usize;
+        if has_more {
+            results.truncate(params.limit as usize);
+        }
+
+        Ok(EventQueryResult {
+            data: results,
+            has_more,
+        })
     }
 
-    /// Run PRAGMA optimize to update query planner statistics where needed.
-    pub fn analyze(&self) -> Result<(), Error> {
-        self.conn.execute_batch("PRAGMA optimize;")?;
+    /// Get the highest ledger sequence in the store.
+    pub fn latest_ledger_sequence(&self) -> Result<Option<u32>, crate::Error> {
+        let v = self.latest_ledger.load(Ordering::Relaxed);
+        Ok(if v == 0 { None } else { Some(v) })
+    }
+
+    /// Get the lowest non-expired ledger sequence.
+    pub fn earliest_ledger_sequence(&self) -> Result<Option<u32>, crate::Error> {
+        let now = chrono::Utc::now().timestamp();
+        let min = self
+            .ledgers
+            .iter()
+            .filter(|kv| kv.value().expires_at > now)
+            .map(|kv| *kv.key())
+            .min();
+        Ok(min)
+    }
+
+    /// Clean up expired cache entries. Returns the number of ledgers removed.
+    pub fn cleanup_expired(&self) -> Result<u64, crate::Error> {
+        let now = chrono::Utc::now().timestamp();
+        let mut removed = 0u64;
+
+        // Collect expired keys first to avoid holding iterators during removal.
+        let expired: Vec<u32> = self
+            .ledgers
+            .iter()
+            .filter(|kv| kv.value().expires_at <= now)
+            .map(|kv| *kv.key())
+            .collect();
+
+        for seq in expired {
+            self.ledgers.remove(&seq);
+            removed += 1;
+        }
+
+        // Update latest_ledger if the current one was removed.
+        if removed > 0 {
+            let new_latest = self.ledgers.iter().map(|kv| *kv.key()).max().unwrap_or(0);
+            self.latest_ledger.store(new_latest, Ordering::Relaxed);
+        }
+
+        Ok(removed)
+    }
+
+    /// No-op (no query planner in in-memory store).
+    pub fn analyze(&self) -> Result<(), crate::Error> {
         Ok(())
     }
 }
@@ -466,7 +542,7 @@ pub struct EventQueryResult {
     pub has_more: bool,
 }
 
-/// A single event row from the database.
+/// A single event row returned from queries.
 #[derive(Debug, Clone)]
 pub struct EventRow {
     pub id: String,

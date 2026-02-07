@@ -26,13 +26,12 @@ pub async fn run_sync(
         Some(seq) => seq,
         None => {
             // Try to resume from where we left off
-            let last = {
-                let db = state.writer.lock().unwrap();
-                db.get_sync_state("last_synced_ledger")
-                    .ok()
-                    .flatten()
-                    .and_then(|v| v.parse::<u32>().ok())
-            };
+            let last = state
+                .store
+                .get_sync_state("last_synced_ledger")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<u32>().ok());
             match last {
                 Some(seq) => seq + 1,
                 None => {
@@ -63,16 +62,14 @@ pub async fn run_sync(
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(CLEANUP_INTERVAL).await;
-            if let Ok(db) = cleanup_state.writer.lock() {
-                match db.cleanup_expired() {
-                    Ok(count) if count > 0 => {
-                        tracing::info!(count, "cleaned up expired ledger cache entries");
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "error during cleanup");
-                    }
-                    _ => {}
+            match cleanup_state.store.cleanup_expired() {
+                Ok(count) if count > 0 => {
+                    tracing::info!(count, "cleaned up expired ledger cache entries");
                 }
+                Err(e) => {
+                    tracing::warn!(error = %e, "error during cleanup");
+                }
+                _ => {}
             }
         }
     });
@@ -82,10 +79,10 @@ pub async fn run_sync(
     loop {
         // Skip any cached ledgers
         loop {
-            let cached = {
-                let db = state.writer.lock().unwrap();
-                db.is_ledger_cached(current_ledger).unwrap_or(false)
-            };
+            let cached = state
+                .store
+                .is_ledger_cached(current_ledger)
+                .unwrap_or(false);
             if cached {
                 current_ledger += 1;
                 consecutive_failures = 0;
@@ -116,13 +113,11 @@ pub async fn run_sync(
                 Ok(events) => {
                     let event_count = events.len();
                     let db_result = (|| -> Result<(), crate::Error> {
-                        let db = state
-                            .writer
-                            .lock()
-                            .map_err(|_| crate::Error::Internal("db lock poisoned".to_string()))?;
-                        db.insert_events(&events)?;
-                        db.record_ledger_cached(seq, state.cache_ttl_seconds)?;
-                        db.set_sync_state("last_synced_ledger", &seq.to_string())?;
+                        state.store.insert_events(&events)?;
+                        state.store.record_ledger_cached(seq, 0)?;
+                        state
+                            .store
+                            .set_sync_state("last_synced_ledger", &seq.to_string())?;
                         Ok(())
                     })();
 
@@ -165,11 +160,9 @@ pub async fn run_sync(
             );
             current_ledger += advanced;
 
-            // Periodically update query planner statistics
+            // Periodically update query planner statistics (no-op for in-memory store)
             if current_ledger % 1000 < parallel_fetches {
-                if let Ok(db) = state.writer.lock() {
-                    let _ = db.analyze();
-                }
+                let _ = state.store.analyze();
             }
         }
 

@@ -17,10 +17,8 @@ FROM debian:12-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-RUN useradd -r -s /bin/false appuser \
-    && mkdir -p /data && chown appuser:appuser /data
+RUN useradd -r -s /bin/false appuser
 COPY --from=builder /app/target/release/stellar-events-api /usr/local/bin/
 USER appuser
-ENV DATA_DIR=/data
 EXPOSE 3000
 ENTRYPOINT ["stellar-events-api"]
