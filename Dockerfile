@@ -13,7 +13,7 @@ RUN mkdir src \
 COPY src src
 RUN touch src/main.rs src/lib.rs && cargo build --release
 
-FROM debian:12-slim
+FROM debian:trixie-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
