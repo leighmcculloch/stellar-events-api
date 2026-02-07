@@ -93,7 +93,7 @@ section{margin-bottom:40px}
   <tr><td><code>limit</code></td><td>integer</td><td>Number of events to return (1–100, default 10)</td></tr>
   <tr><td><code>after</code></td><td>string</td><td>Cursor for pagination — the event <code>id</code> to start after</td></tr>
   <tr><td><code>ledger</code></td><td>integer</td><td>Only return events from this ledger sequence. Historical ledgers are fetched on demand.</td></tr>
-  <tr><td><code>tx</code></td><td>string</td><td>Limit results to events from this transaction hash</td></tr>
+  <tr><td><code>tx</code></td><td>string</td><td>Limit results to events from this transaction hash. Requires <code>ledger</code>.</td></tr>
   <tr><td><code>filters</code></td><td>JSON string / array</td><td>Filter objects (see below). GET accepts a JSON-encoded string; POST accepts an array.</td></tr>
 </table>
 
