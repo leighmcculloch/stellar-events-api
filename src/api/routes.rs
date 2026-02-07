@@ -173,6 +173,7 @@ async fn list_events(
     state: Arc<AppState>,
     req: ListEventsRequest,
 ) -> Result<Json<ListResponse<Event>>, ApiError> {
+    let start = std::time::Instant::now();
     let limit = req.limit.unwrap_or(10);
 
     if limit == 0 || limit > 100 {
@@ -237,6 +238,11 @@ async fn list_events(
     tracing::debug!(events = result.data.len(), has_more = result.has_more, "query complete");
 
     let events: Vec<Event> = result.data.into_iter().map(Event::from).collect();
+
+    metrics::counter!("api_requests_total", "endpoint" => "events").increment(1);
+    metrics::histogram!("api_request_duration_seconds", "endpoint" => "events")
+        .record(start.elapsed().as_secs_f64());
+    metrics::histogram!("api_events_returned").record(events.len() as f64);
 
     let response = ListResponse {
         object: "list",

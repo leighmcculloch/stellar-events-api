@@ -70,6 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache_ttl_seconds = cli.cache_ttl_days as i64 * 24 * 60 * 60;
     let store = EventStore::new(cache_ttl_seconds);
 
+    // Install Prometheus metrics exporter.
+    let metrics_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
+        .install_recorder()
+        .expect("failed to install Prometheus recorder");
+
     tracing::info!("initialised in-memory event store");
 
     let state = Arc::new(AppState {
@@ -98,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Build and start HTTP server
-    let app = api::router(state);
+    let app = api::router(state, Some(metrics_handle));
     let addr: SocketAddr = format!("{}:{}", cli.bind, cli.port).parse()?;
     tracing::info!(address = %addr, "starting server");
 

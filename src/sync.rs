@@ -138,6 +138,7 @@ pub async fn run_sync(
                 }
                 Err(e) => {
                     consecutive_failures += 1;
+                    metrics::counter!("sync_errors_total").increment(1);
                     tracing::warn!(
                         ledger = seq,
                         error = %e,
@@ -153,6 +154,9 @@ pub async fn run_sync(
         if advanced > 0 {
             let start = current_ledger;
             let end = current_ledger + advanced - 1;
+            metrics::counter!("sync_ledgers_total").increment(advanced as u64);
+            metrics::counter!("sync_events_total").increment(total_events as u64);
+            metrics::gauge!("sync_latest_ledger").set(f64::from(end));
             tracing::info!(
                 ledgers = format!("{}..{}", start, end),
                 events = total_events,

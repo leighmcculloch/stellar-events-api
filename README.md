@@ -146,6 +146,25 @@ GET /health
 
 Returns the server's sync state, including the latest ingested ledger.
 
+### Prometheus metrics
+
+```
+GET /metrics
+```
+
+Returns metrics in Prometheus exposition format. Key metrics:
+
+- `api_requests_total` — total API requests (by endpoint)
+- `api_request_duration_seconds` — request latency histogram (by endpoint)
+- `api_events_returned` — histogram of event counts per response
+- `sync_ledgers_total` — total ledgers synced
+- `sync_events_total` — total events ingested via sync
+- `sync_latest_ledger` — latest synced ledger sequence
+- `sync_errors_total` — total sync fetch errors
+- `store_partitions_total` — current number of cached ledger partitions
+- `store_events_ingested_total` — total events inserted into the store
+- `store_partitions_expired_total` — total partitions removed by cache expiry
+
 ## Configuration
 
 All configuration is via CLI flags or environment variables:

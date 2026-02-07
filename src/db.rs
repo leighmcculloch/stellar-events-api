@@ -206,6 +206,9 @@ impl EventStore {
             let event_count = partition.events.len();
             self.ledgers.insert(ledger_seq, partition);
 
+            metrics::gauge!("store_partitions_total").set(self.ledgers.len() as f64);
+            metrics::counter!("store_events_ingested_total").increment(event_count as u64);
+
             tracing::debug!(
                 ledger = ledger_seq,
                 events = event_count,
@@ -505,6 +508,8 @@ impl EventStore {
         if removed > 0 {
             let new_latest = self.ledgers.iter().map(|kv| *kv.key()).max().unwrap_or(0);
             self.latest_ledger.store(new_latest, Ordering::Relaxed);
+            metrics::gauge!("store_partitions_total").set(self.ledgers.len() as f64);
+            metrics::counter!("store_partitions_expired_total").increment(removed);
             tracing::debug!(
                 removed,
                 remaining = self.ledgers.len(),

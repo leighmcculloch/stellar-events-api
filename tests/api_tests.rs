@@ -21,7 +21,7 @@ async fn start_test_server(events: Vec<ExtractedEvent>) -> String {
         client: reqwest::Client::new(),
     });
 
-    let app = api::router(state);
+    let app = api::router(state, None);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
