@@ -85,7 +85,7 @@ section{margin-bottom:40px}
 <div class="endpoint-heading">
   <span class="method method-get">GET</span>
   <span class="method method-post">POST</span>
-  <code>/v1/events</code>
+  <code>/events</code>
 </div>
 <p>Retrieve contract events. Both methods accept the same fields — GET uses query parameters, POST uses a JSON body.</p>
 <table>
@@ -108,7 +108,7 @@ section{margin-bottom:40px}
 <h3>Response Shape</h3>
 <pre>{
   "object": "list",
-  "url": "/v1/events",
+  "url": "/events",
   "has_more": false,
   "data": [
     {
@@ -127,7 +127,7 @@ section{margin-bottom:40px}
 
 <div class="endpoint-heading">
   <span class="method method-get">GET</span>
-  <code>/v1/health</code>
+  <code>/health</code>
 </div>
 <p>Health check and server status.</p>
 <h3>Response Shape</h3>
@@ -161,7 +161,7 @@ section{margin-bottom:40px}
     <button class="toggle-btn" data-method="POST" data-panel="latest">POST</button>
   </div>
   <div class="request-get" id="req-get-latest">
-    <textarea class="request-area" rows="1">/v1/events?limit=5</textarea>
+    <textarea class="request-area" rows="1">/events?limit=5</textarea>
   </div>
   <div class="request-post" id="req-post-latest" style="display:none">
     <textarea class="request-area" rows="3">{
@@ -182,7 +182,7 @@ section{margin-bottom:40px}
     <button class="toggle-btn" data-method="POST" data-panel="bytype">POST</button>
   </div>
   <div class="request-get" id="req-get-bytype">
-    <textarea class="request-area" rows="1">/v1/events?limit=5&filters=[{"type":"contract"}]</textarea>
+    <textarea class="request-area" rows="1">/events?limit=5&filters=[{"type":"contract"}]</textarea>
   </div>
   <div class="request-post" id="req-post-bytype" style="display:none">
     <textarea class="request-area" rows="6">{
@@ -206,7 +206,7 @@ section{margin-bottom:40px}
     <button class="toggle-btn" data-method="POST" data-panel="bytopics">POST</button>
   </div>
   <div class="request-get" id="req-get-bytopics">
-    <textarea class="request-area" rows="1">/v1/events?limit=5&filters=[{"type":"contract","topics":[{"symbol":"transfer"}]}]</textarea>
+    <textarea class="request-area" rows="1">/events?limit=5&filters=[{"type":"contract","topics":[{"symbol":"transfer"}]}]</textarea>
   </div>
   <div class="request-post" id="req-post-bytopics" style="display:none">
     <textarea class="request-area" rows="8">{
@@ -233,7 +233,7 @@ section{margin-bottom:40px}
     <button class="toggle-btn" data-method="POST" data-panel="bycontract">POST</button>
   </div>
   <div class="request-get" id="req-get-bycontract">
-    <textarea class="request-area" rows="1">/v1/events?limit=5&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI"}]</textarea>
+    <textarea class="request-area" rows="1">/events?limit=5&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI"}]</textarea>
   </div>
   <div class="request-post" id="req-post-bycontract" style="display:none">
     <textarea class="request-area" rows="6">{
@@ -257,7 +257,7 @@ section{margin-bottom:40px}
     <button class="toggle-btn" data-method="POST" data-panel="byledger">POST</button>
   </div>
   <div class="request-get" id="req-get-byledger">
-    <textarea class="request-area" rows="1">/v1/events?limit=5&ledger=58000000</textarea>
+    <textarea class="request-area" rows="1">/events?limit=5&ledger=58000000</textarea>
   </div>
   <div class="request-post" id="req-post-byledger" style="display:none">
     <textarea class="request-area" rows="4">{
@@ -279,7 +279,7 @@ section{margin-bottom:40px}
     <button class="toggle-btn" data-method="POST" data-panel="pagination">POST</button>
   </div>
   <div class="request-get" id="req-get-pagination">
-    <textarea class="request-area" rows="1">/v1/events?limit=5&after=evt_0058000000_1_0080_0_0000</textarea>
+    <textarea class="request-area" rows="1">/events?limit=5&after=evt_0058000000_1_0080_0_0000</textarea>
   </div>
   <div class="request-post" id="req-post-pagination" style="display:none">
     <textarea class="request-area" rows="4">{
@@ -353,7 +353,7 @@ section{margin-bottom:40px}
         url = textarea.value.trim();
         opts.method = 'GET';
       } else {
-        url = '/v1/events';
+        url = '/events';
         var textarea = document.querySelector('#req-post-' + panel + ' .request-area');
         var body = textarea.value.trim();
         opts.method = 'POST';
@@ -414,7 +414,7 @@ fn parse_multi_params(query: &str) -> HashMap<String, Vec<String>> {
     map
 }
 
-/// JSON request body for POST /v1/events.
+/// JSON request body for POST /events.
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct ListEventsRequest {
     #[serde(default)]
@@ -429,7 +429,7 @@ pub struct ListEventsRequest {
     filters: Vec<EventFilter>,
 }
 
-/// GET /v1/events
+/// GET /events
 pub async fn list_events_get(
     State(state): State<Arc<AppState>>,
     axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
@@ -479,7 +479,7 @@ pub async fn list_events_get(
     list_events(state, req).await
 }
 
-/// POST /v1/events
+/// POST /events
 pub async fn list_events_post(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ListEventsRequest>,
@@ -601,7 +601,7 @@ async fn list_events(
 
     let response = ListResponse {
         object: "list",
-        url: "/v1/events".to_string(),
+        url: "/events".to_string(),
         has_more: result.has_more,
         data: events,
     };
@@ -609,7 +609,7 @@ async fn list_events(
     Ok(Json(response))
 }
 
-/// GET /v1/health
+/// GET /health
 pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, ApiError> {
     let earliest = state.store.earliest_ledger_sequence().map_err(|e| ApiError::Internal {
         message: format!("database error: {}", e),

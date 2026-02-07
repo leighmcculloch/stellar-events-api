@@ -163,7 +163,7 @@ async fn test_list_events_empty() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/events", base_url))
+        .get(format!("{}/events", base_url))
         .send()
         .await
         .unwrap();
@@ -172,7 +172,7 @@ async fn test_list_events_empty() {
 
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["object"], "list");
-    assert_eq!(body["url"], "/v1/events");
+    assert_eq!(body["url"], "/events");
     assert_eq!(body["has_more"], false);
     assert!(body["data"].as_array().unwrap().is_empty());
 }
@@ -184,7 +184,7 @@ async fn test_list_events_with_data() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/events?ledger=1000&limit=3", base_url))
+        .get(format!("{}/events?ledger=1000&limit=3", base_url))
         .send()
         .await
         .unwrap();
@@ -213,7 +213,7 @@ async fn test_pagination_forward() {
 
     // First page
     let resp = client
-        .get(format!("{}/v1/events?ledger=1000&limit=2", base_url))
+        .get(format!("{}/events?ledger=1000&limit=2", base_url))
         .send()
         .await
         .unwrap();
@@ -226,7 +226,7 @@ async fn test_pagination_forward() {
     // Second page
     let resp = client
         .get(format!(
-            "{}/v1/events?limit=2&after={}",
+            "{}/events?limit=2&after={}",
             base_url, last_id
         ))
         .send()
@@ -242,7 +242,7 @@ async fn test_pagination_forward() {
     let last_id = data[1]["id"].as_str().unwrap().to_string();
     let resp = client
         .get(format!(
-            "{}/v1/events?limit=2&after={}",
+            "{}/events?limit=2&after={}",
             base_url, last_id
         ))
         .send()
@@ -260,7 +260,7 @@ async fn test_default_limit() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/events?ledger=1000", base_url))
+        .get(format!("{}/events?ledger=1000", base_url))
         .send()
         .await
         .unwrap();
@@ -277,7 +277,7 @@ async fn test_default_starts_at_latest_ledger() {
 
     // No ledger or after — should default to latest ledger (1000, since all events are on it)
     let resp = client
-        .get(format!("{}/v1/events", base_url))
+        .get(format!("{}/events", base_url))
         .send()
         .await
         .unwrap();
@@ -299,7 +299,7 @@ async fn test_ledger_filter() {
     // ledger=100 returns all 5 events (all on ledger 100)
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100",
+            "{}/events?ledger=100",
             base_url
         ))
         .send()
@@ -323,7 +323,7 @@ async fn test_ledger_filter_no_match() {
     // ledger=999 returns no events (no data on that ledger)
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=999",
+            "{}/events?ledger=999",
             base_url
         ))
         .send()
@@ -348,7 +348,7 @@ async fn test_filter_by_contract_id() {
     }]);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&filters={}",
+            "{}/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -377,7 +377,7 @@ async fn test_filter_by_type() {
     let f = serde_json::json!([{"type": "system"}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&filters={}",
+            "{}/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -400,7 +400,7 @@ async fn test_filter_by_tx_hash() {
     let tx_hash = "b".repeat(64);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&tx={}",
+            "{}/events?ledger=100&tx={}",
             base_url, tx_hash
         ))
         .send()
@@ -420,7 +420,7 @@ async fn test_tx_without_ledger_returns_error() {
 
     let resp = client
         .get(format!(
-            "{}/v1/events?tx={}",
+            "{}/events?tx={}",
             base_url,
             "a".repeat(64)
         ))
@@ -443,7 +443,7 @@ async fn test_filter_by_topic_positional() {
     let f = serde_json::json!([{"topics": [{"symbol": "transfer"}]}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&filters={}",
+            "{}/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -467,7 +467,7 @@ async fn test_filter_topic_with_wildcard() {
     let f = serde_json::json!([{"topics": [{"symbol": "transfer"}, "*", {"address": "GDEF"}]}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&filters={}",
+            "{}/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -493,7 +493,7 @@ async fn test_filter_topic_too_few_positions() {
         serde_json::json!([{"topics": [{"symbol": "transfer"}, "*", "*", {"symbol": "extra"}]}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&filters={}",
+            "{}/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -524,7 +524,7 @@ async fn test_filters_or_logic() {
     ]);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&filters={}",
+            "{}/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -552,7 +552,7 @@ async fn test_filters_and_logic_within() {
     }]);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&filters={}",
+            "{}/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -579,7 +579,7 @@ async fn test_filters_combined_with_pagination() {
 
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&limit=1&filters={}",
+            "{}/events?ledger=100&limit=1&filters={}",
             base_url, fp
         ))
         .send()
@@ -595,7 +595,7 @@ async fn test_filters_combined_with_pagination() {
     let last_id = data[0]["id"].as_str().unwrap();
     let resp = client
         .get(format!(
-            "{}/v1/events?limit=1&after={}&filters={}",
+            "{}/events?limit=1&after={}&filters={}",
             base_url, last_id, fp
         ))
         .send()
@@ -617,7 +617,7 @@ async fn test_filters_combined_with_ledger() {
     let f = serde_json::json!([{"topics": [{"symbol": "transfer"}]}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&filters={}",
+            "{}/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -641,7 +641,7 @@ async fn test_filters_all_wildcards() {
     let f = serde_json::json!([{"topics": ["*", "*", "*"]}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&filters={}",
+            "{}/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -665,7 +665,7 @@ async fn test_filters_empty_array() {
     let f = serde_json::json!([]);
     let resp = client
         .get(format!(
-            "{}/v1/events?ledger=100&filters={}",
+            "{}/events?ledger=100&filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -685,14 +685,14 @@ async fn test_invalid_limit() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/events?limit=0", base_url))
+        .get(format!("{}/events?limit=0", base_url))
         .send()
         .await
         .unwrap();
     assert_eq!(resp.status(), 400);
 
     let resp = client
-        .get(format!("{}/v1/events?limit=101", base_url))
+        .get(format!("{}/events?limit=101", base_url))
         .send()
         .await
         .unwrap();
@@ -706,7 +706,7 @@ async fn test_invalid_cursor() {
 
     let resp = client
         .get(format!(
-            "{}/v1/events?after=invalid_cursor",
+            "{}/events?after=invalid_cursor",
             base_url
         ))
         .send()
@@ -724,7 +724,7 @@ async fn test_filters_invalid_json() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/events?filters=not-valid-json", base_url))
+        .get(format!("{}/events?filters=not-valid-json", base_url))
         .send()
         .await
         .unwrap();
@@ -745,7 +745,7 @@ async fn test_filters_invalid_type() {
     let f = serde_json::json!([{"type": "bogus"}]);
     let resp = client
         .get(format!(
-            "{}/v1/events?filters={}",
+            "{}/events?filters={}",
             base_url,
             filters_param(&f)
         ))
@@ -761,7 +761,7 @@ async fn test_error_response_format() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/events?limit=abc", base_url))
+        .get(format!("{}/events?limit=abc", base_url))
         .send()
         .await
         .unwrap();
@@ -783,7 +783,7 @@ async fn test_post_list_events() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(format!("{}/v1/events", base_url))
+        .post(format!("{}/events", base_url))
         .json(&serde_json::json!({
             "limit": 2,
             "ledger": 1000
@@ -806,7 +806,7 @@ async fn test_post_with_filters() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(format!("{}/v1/events", base_url))
+        .post(format!("{}/events", base_url))
         .json(&serde_json::json!({
             "ledger": 100,
             "filters": [{"contract_id": "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}]
@@ -833,7 +833,7 @@ async fn test_post_invalid_limit() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(format!("{}/v1/events", base_url))
+        .post(format!("{}/events", base_url))
         .json(&serde_json::json!({"limit": 0}))
         .send()
         .await
@@ -847,7 +847,7 @@ async fn test_post_empty_body() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(format!("{}/v1/events", base_url))
+        .post(format!("{}/events", base_url))
         .json(&serde_json::json!({}))
         .send()
         .await
@@ -866,7 +866,7 @@ async fn test_list_envelope_consistency() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/events", base_url))
+        .get(format!("{}/events", base_url))
         .send()
         .await
         .unwrap();
@@ -886,7 +886,7 @@ async fn test_event_fields_complete() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/events?limit=1", base_url))
+        .get(format!("{}/events?limit=1", base_url))
         .send()
         .await
         .unwrap();
@@ -909,7 +909,7 @@ async fn test_status_endpoint() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/v1/health", base_url))
+        .get(format!("{}/health", base_url))
         .send()
         .await
         .unwrap();

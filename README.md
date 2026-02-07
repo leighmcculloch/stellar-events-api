@@ -17,8 +17,8 @@ The server starts on port 3000 by default and begins syncing ledgers from the St
 ### List events
 
 ```
-GET  /v1/events
-POST /v1/events
+GET  /events
+POST /events
 ```
 
 Returns a paginated list of contract events. Parameters can be passed as query string parameters (GET) or as a JSON request body (POST).
@@ -48,7 +48,7 @@ Topics are matched by position: element 0 of the filter matches against topic 0 
 Example: find transfer events to a specific address on either of two contracts:
 
 ```
-GET /v1/events?filters=[
+GET /events?filters=[
   {"contract_id":"CABC...","type":"contract","topics":[{"symbol":"transfer"},"*",{"address":"GDEF..."}]},
   {"contract_id":"CXYZ...","type":"contract","topics":[{"symbol":"transfer"},"*",{"address":"GDEF..."}]}
 ]
@@ -61,31 +61,31 @@ If no `ledger` or `after` is provided, the API defaults to the latest ingested l
 All events from the latest ledger onward:
 
 ```bash
-curl 'http://localhost:3000/v1/events'
+curl 'http://localhost:3000/events'
 ```
 
 All events from ledger 58000000 onward:
 
 ```bash
-curl 'http://localhost:3000/v1/events?ledger=58000000'
+curl 'http://localhost:3000/events?ledger=58000000'
 ```
 
 All events for the USDC contract:
 
 ```bash
-curl 'http://localhost:3000/v1/events?ledger=58000000&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"}]'
+curl 'http://localhost:3000/events?ledger=58000000&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"}]'
 ```
 
 Transfer events for the USDC contract:
 
 ```bash
-curl 'http://localhost:3000/v1/events?ledger=58000000&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75","topics":[{"symbol":"transfer"}]}]'
+curl 'http://localhost:3000/events?ledger=58000000&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75","topics":[{"symbol":"transfer"}]}]'
 ```
 
 Same query using POST with a JSON body:
 
 ```bash
-curl -X POST 'http://localhost:3000/v1/events' \
+curl -X POST 'http://localhost:3000/events' \
   -H 'Content-Type: application/json' \
   -d '{
     "ledger": 58000000,
@@ -103,7 +103,7 @@ curl -X POST 'http://localhost:3000/v1/events' \
 ```json
 {
   "object": "list",
-  "url": "/v1/events",
+  "url": "/events",
   "has_more": true,
   "data": [
     {
@@ -141,7 +141,7 @@ curl -X POST 'http://localhost:3000/v1/events' \
 ### Server health
 
 ```
-GET /v1/health
+GET /health
 ```
 
 Returns the server's sync state, including the latest ingested ledger.

@@ -15,10 +15,10 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", axum::routing::get(routes::home))
         .route(
-            "/v1/events",
+            "/events",
             axum::routing::get(routes::list_events_get).post(routes::list_events_post),
         )
-        .route("/v1/health", axum::routing::get(routes::health))
+        .route("/health", axum::routing::get(routes::health))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
