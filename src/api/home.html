@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stellar Events API</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#0f1117;color:#e1e4e8;line-height:1.6}
+a{color:#58a6ff;text-decoration:none}
+a:hover{text-decoration:underline}
+.container{max-width:960px;margin:0 auto;padding:24px 20px}
+header{border-bottom:1px solid #30363d;padding-bottom:20px;margin-bottom:32px}
+header h1{margin:0 0 6px;font-size:28px;color:#f0f6fc}
+header p{margin:0;color:#8b949e;font-size:15px}
+h2{font-size:20px;color:#f0f6fc;margin:32px 0 12px;border-bottom:1px solid #21262d;padding-bottom:8px}
+h3{font-size:16px;color:#c9d1d9;margin:20px 0 8px}
+code{background:#161b22;border:1px solid #30363d;border-radius:4px;padding:2px 6px;font-size:13px;font-family:"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;color:#79c0ff}
+pre{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:14px;overflow-x:auto;font-size:13px;font-family:"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;color:#c9d1d9;line-height:1.5}
+table{width:100%;border-collapse:collapse;margin:8px 0 16px;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border:1px solid #21262d}
+th{background:#161b22;color:#8b949e;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+td code{border:none;padding:0;background:none;color:#79c0ff}
+.method{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:4px;margin-right:8px;font-family:"SF Mono",Consolas,monospace}
+.method-get{background:#1f6feb22;color:#58a6ff;border:1px solid #1f6feb44}
+.method-post{background:#23863622;color:#3fb950;border:1px solid #23863644}
+.endpoint-heading{display:flex;align-items:center;margin:20px 0 8px}
+.endpoint-heading code{font-size:15px;border:none;background:none;padding:0}
+.tabs{display:flex;gap:0;border-bottom:2px solid #21262d;margin-bottom:0}
+.tab{padding:8px 16px;cursor:pointer;color:#8b949e;font-size:14px;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .15s,border-color .15s}
+.tab:hover{color:#c9d1d9}
+.tab.active{color:#f0f6fc;border-bottom-color:#58a6ff}
+.tab-panel{display:none;padding:16px 0}
+.tab-panel.active{display:block}
+.toggle-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.toggle-btn{padding:4px 12px;font-size:13px;font-weight:600;border:1px solid #30363d;background:#21262d;color:#8b949e;cursor:pointer;border-radius:4px;font-family:"SF Mono",Consolas,monospace;transition:all .15s}
+.toggle-btn.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.request-area{width:100%;min-height:60px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-family:"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;font-size:13px;padding:12px;resize:vertical;line-height:1.5}
+.submit-btn{margin-top:10px;padding:6px 20px;font-size:14px;font-weight:600;background:#238636;color:#fff;border:1px solid #2ea04366;border-radius:6px;cursor:pointer;transition:background .15s}
+.submit-btn:hover{background:#2ea043}
+.submit-btn:disabled{opacity:.5;cursor:not-allowed}
+.response-area{margin-top:12px}
+.response-area pre{max-height:400px;overflow-y:auto;margin:0}
+.response-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.response-time{float:right;font-variant-numeric:tabular-nums;color:#58a6ff}
+.curl-area{margin-top:8px}
+.curl-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.curl-area pre{margin:0;white-space:pre-wrap;word-break:break-all;font-size:12px;padding:10px;cursor:pointer;position:relative}
+.curl-area pre:hover{border-color:#58a6ff}
+.copy-hint{font-size:11px;color:#484f58;font-weight:400;text-transform:none;letter-spacing:0}
+.spinner{display:none;width:16px;height:16px;border:2px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:spin .6s linear infinite;margin-left:8px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.filter-table td{vertical-align:top}
+section{margin-bottom:40px}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>Stellar Events API</h1>
+  <p>Query Stellar contract events via a paginated REST API. Filter by event type, contract ID, transaction hash, and topic patterns.</p>
+</header>
+
+<!-- Endpoint Reference -->
+<section>
+<h2>Endpoint Reference</h2>
+
+<div class="endpoint-heading">
+  <span class="method method-get">GET</span>
+  <span class="method method-post">POST</span>
+  <code>/events</code>
+</div>
+<p>Retrieve contract events. Both methods accept the same fields — GET uses query parameters, POST uses a JSON body.</p>
+<table>
+  <tr><th>Parameter</th><th>Type (GET / POST)</th><th>Description</th></tr>
+  <tr><td><code>limit</code></td><td>integer</td><td>Number of events to return (1–100, default 10)</td></tr>
+  <tr><td><code>after</code></td><td>string</td><td>Cursor for pagination — the event <code>id</code> to start after</td></tr>
+  <tr><td><code>ledger</code></td><td>integer</td><td>Only return events from this ledger sequence. Historical ledgers are fetched on demand.</td></tr>
+  <tr><td><code>tx</code></td><td>string</td><td>Limit results to events from this transaction hash. Requires <code>ledger</code>.</td></tr>
+  <tr><td><code>filters</code></td><td>JSON string / array</td><td>Filter objects (see below). GET accepts a JSON-encoded string; POST accepts an array.</td></tr>
+</table>
+
+<h3>Filter Object</h3>
+<table>
+  <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>type</code></td><td>string</td><td><code>"contract"</code> or <code>"system"</code></td></tr>
+  <tr><td><code>contract_id</code></td><td>string</td><td>Stellar contract strkey (C…)</td></tr>
+  <tr><td><code>topics</code></td><td>array</td><td>Positional topic matching. Each element is an XDR-JSON ScVal or <code>"*"</code> (wildcard)</td></tr>
+</table>
+
+<h3>Response Shape</h3>
+<pre>{
+  "object": "list",
+  "url": "/events",
+  "has_more": false,
+  "data": [
+    {
+      "object": "event",
+      "id": "0000000000-0000000001",
+      "ledger_sequence": 100,
+      "ledger_closed_at": "2024-01-01T00:00:00+00:00",
+      "tx_hash": "abc123...",
+      "type": "contract",
+      "contract_id": "CABC...",
+      "topics": [...],
+      "data": {...}
+    }
+  ]
+}</pre>
+
+<div class="endpoint-heading">
+  <span class="method method-get">GET</span>
+  <code>/health</code>
+</div>
+<p>Health check and server status.</p>
+<h3>Response Shape</h3>
+<pre>{
+  "status": "ok",
+  "earliest_ledger": 12000,
+  "latest_ledger": 12345,
+  "network_passphrase": "...",
+  "version": "0.1.0"
+}</pre>
+</section>
+
+<!-- Interactive Explorer -->
+<section>
+<h2>Interactive Explorer</h2>
+<p>Edit the requests below and submit them against this server.</p>
+
+<div class="tabs" id="tabs">
+  <button class="tab active" data-tab="latest">Latest events</button>
+  <button class="tab" data-tab="bytype">Filter by type</button>
+  <button class="tab" data-tab="bytopics">Filter by topics</button>
+  <button class="tab" data-tab="bycontract">Filter by contract</button>
+  <button class="tab" data-tab="byledger">With ledger</button>
+  <button class="tab" data-tab="pagination">With pagination</button>
+</div>
+
+<!-- Latest events -->
+<div class="tab-panel active" id="panel-latest">
+  <div class="toggle-row">
+    <button class="toggle-btn active" data-method="GET" data-panel="latest">GET</button>
+    <button class="toggle-btn" data-method="POST" data-panel="latest">POST</button>
+  </div>
+  <div class="request-get" id="req-get-latest">
+    <textarea class="request-area" rows="1">/events?limit=5</textarea>
+  </div>
+  <div class="request-post" id="req-post-latest" style="display:none">
+    <textarea class="request-area" rows="3">{
+  "limit": 5
+}</textarea>
+  </div>
+  <div class="curl-area" id="curl-latest">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
+  </div>
+  <button class="submit-btn" data-panel="latest">Submit<span class="spinner"></span></button>
+  <div class="response-area" id="resp-latest">
+    <div class="response-label">Response<span class="response-time"></span></div>
+    <pre>Click Submit to send a request.</pre>
+  </div>
+</div>
+
+<!-- Filter by type -->
+<div class="tab-panel" id="panel-bytype">
+  <div class="toggle-row">
+    <button class="toggle-btn active" data-method="GET" data-panel="bytype">GET</button>
+    <button class="toggle-btn" data-method="POST" data-panel="bytype">POST</button>
+  </div>
+  <div class="request-get" id="req-get-bytype">
+    <textarea class="request-area" rows="1">/events?limit=5&filters=[{"type":"contract"}]</textarea>
+  </div>
+  <div class="request-post" id="req-post-bytype" style="display:none">
+    <textarea class="request-area" rows="6">{
+  "limit": 5,
+  "filters": [
+    { "type": "contract" }
+  ]
+}</textarea>
+  </div>
+  <div class="curl-area" id="curl-bytype">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
+  </div>
+  <button class="submit-btn" data-panel="bytype">Submit<span class="spinner"></span></button>
+  <div class="response-area" id="resp-bytype">
+    <div class="response-label">Response<span class="response-time"></span></div>
+    <pre>Click Submit to send a request.</pre>
+  </div>
+</div>
+
+<!-- Filter by topics -->
+<div class="tab-panel" id="panel-bytopics">
+  <div class="toggle-row">
+    <button class="toggle-btn active" data-method="GET" data-panel="bytopics">GET</button>
+    <button class="toggle-btn" data-method="POST" data-panel="bytopics">POST</button>
+  </div>
+  <div class="request-get" id="req-get-bytopics">
+    <textarea class="request-area" rows="1">/events?limit=5&filters=[{"type":"contract","topics":[{"symbol":"transfer"}]}]</textarea>
+  </div>
+  <div class="request-post" id="req-post-bytopics" style="display:none">
+    <textarea class="request-area" rows="8">{
+  "limit": 5,
+  "filters": [
+    {
+      "type": "contract",
+      "topics": [{"symbol": "transfer"}]
+    }
+  ]
+}</textarea>
+  </div>
+  <div class="curl-area" id="curl-bytopics">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
+  </div>
+  <button class="submit-btn" data-panel="bytopics">Submit<span class="spinner"></span></button>
+  <div class="response-area" id="resp-bytopics">
+    <div class="response-label">Response<span class="response-time"></span></div>
+    <pre>Click Submit to send a request.</pre>
+  </div>
+</div>
+
+<!-- Filter by contract -->
+<div class="tab-panel" id="panel-bycontract">
+  <div class="toggle-row">
+    <button class="toggle-btn active" data-method="GET" data-panel="bycontract">GET</button>
+    <button class="toggle-btn" data-method="POST" data-panel="bycontract">POST</button>
+  </div>
+  <div class="request-get" id="req-get-bycontract">
+    <textarea class="request-area" rows="1">/events?limit=5&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI"}]</textarea>
+  </div>
+  <div class="request-post" id="req-post-bycontract" style="display:none">
+    <textarea class="request-area" rows="6">{
+  "limit": 5,
+  "filters": [
+    { "contract_id": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI" }
+  ]
+}</textarea>
+  </div>
+  <div class="curl-area" id="curl-bycontract">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
+  </div>
+  <button class="submit-btn" data-panel="bycontract">Submit<span class="spinner"></span></button>
+  <div class="response-area" id="resp-bycontract">
+    <div class="response-label">Response<span class="response-time"></span></div>
+    <pre>Click Submit to send a request.</pre>
+  </div>
+</div>
+
+<!-- With ledger -->
+<div class="tab-panel" id="panel-byledger">
+  <div class="toggle-row">
+    <button class="toggle-btn active" data-method="GET" data-panel="byledger">GET</button>
+    <button class="toggle-btn" data-method="POST" data-panel="byledger">POST</button>
+  </div>
+  <div class="request-get" id="req-get-byledger">
+    <textarea class="request-area" rows="1">/events?limit=5&ledger=58000000</textarea>
+  </div>
+  <div class="request-post" id="req-post-byledger" style="display:none">
+    <textarea class="request-area" rows="4">{
+  "limit": 5,
+  "ledger": 58000000
+}</textarea>
+  </div>
+  <div class="curl-area" id="curl-byledger">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
+  </div>
+  <button class="submit-btn" data-panel="byledger">Submit<span class="spinner"></span></button>
+  <div class="response-area" id="resp-byledger">
+    <div class="response-label">Response<span class="response-time"></span></div>
+    <pre>Click Submit to send a request.</pre>
+  </div>
+</div>
+
+<!-- With pagination -->
+<div class="tab-panel" id="panel-pagination">
+  <div class="toggle-row">
+    <button class="toggle-btn active" data-method="GET" data-panel="pagination">GET</button>
+    <button class="toggle-btn" data-method="POST" data-panel="pagination">POST</button>
+  </div>
+  <div class="request-get" id="req-get-pagination">
+    <textarea class="request-area" rows="1">/events?limit=5&after=evt_0058000000_1_0080_0_0000</textarea>
+  </div>
+  <div class="request-post" id="req-post-pagination" style="display:none">
+    <textarea class="request-area" rows="4">{
+  "limit": 5,
+  "after": "evt_0058000000_1_0080_0_0000"
+}</textarea>
+  </div>
+  <div class="curl-area" id="curl-pagination">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
+  </div>
+  <button class="submit-btn" data-panel="pagination">Submit<span class="spinner"></span></button>
+  <div class="response-area" id="resp-pagination">
+    <div class="response-label">Response<span class="response-time"></span></div>
+    <pre>Click Submit to send a request.</pre>
+  </div>
+</div>
+
+</section>
+</div>
+
+<script>
+(function() {
+  var origin = location.origin;
+
+  function buildCurl(panel) {
+    var activeToggle = document.querySelector('.toggle-btn.active[data-panel="' + panel + '"]');
+    var method = activeToggle ? activeToggle.dataset.method : 'GET';
+    var curlPre = document.querySelector('#curl-' + panel + ' pre');
+    if (method === 'GET') {
+      var url = document.querySelector('#req-get-' + panel + ' .request-area').value.trim();
+      curlPre.textContent = "curl '" + origin + url + "'";
+    } else {
+      var body = document.querySelector('#req-post-' + panel + ' .request-area').value.trim();
+      curlPre.textContent = "curl -X POST '" + origin + "/events' \\\n  -H 'Content-Type: application/json' \\\n  -d '" + body + "'";
+    }
+  }
+
+  // Build curl for all panels on load
+  var panels = ['latest','bytype','bytopics','bycontract','byledger','pagination'];
+  panels.forEach(buildCurl);
+
+  // Copy curl on click
+  document.querySelectorAll('.curl-area pre').forEach(function(pre) {
+    pre.addEventListener('click', function() {
+      navigator.clipboard.writeText(pre.textContent);
+      var hint = pre.parentElement.querySelector('.copy-hint');
+      hint.textContent = 'copied!';
+      setTimeout(function() { hint.textContent = 'click to copy'; }, 1500);
+    });
+  });
+
+  // Rebuild curl when textarea changes
+  document.querySelectorAll('.request-area').forEach(function(ta) {
+    ta.addEventListener('input', function() {
+      var panel = ta.closest('.tab-panel').id.replace('panel-', '');
+      buildCurl(panel);
+    });
+  });
+
+  // Tabs
+  document.getElementById('tabs').addEventListener('click', function(e) {
+    var btn = e.target.closest('.tab');
+    if (!btn) return;
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+  });
+
+  // GET/POST toggle
+  document.querySelectorAll('.toggle-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var panel = btn.dataset.panel;
+      var method = btn.dataset.method;
+      document.querySelectorAll('.toggle-btn[data-panel="' + panel + '"]').forEach(function(b) {
+        b.classList.remove('active');
+      });
+      btn.classList.add('active');
+      var getEl = document.getElementById('req-get-' + panel);
+      var postEl = document.getElementById('req-post-' + panel);
+      if (method === 'GET') {
+        getEl.style.display = '';
+        postEl.style.display = 'none';
+      } else {
+        getEl.style.display = 'none';
+        postEl.style.display = '';
+      }
+      buildCurl(panel);
+    });
+  });
+
+  // Submit
+  document.querySelectorAll('.submit-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var panel = btn.dataset.panel;
+      var activeToggle = document.querySelector('.toggle-btn.active[data-panel="' + panel + '"]');
+      var method = activeToggle ? activeToggle.dataset.method : 'GET';
+      var respPre = document.querySelector('#resp-' + panel + ' pre');
+      var timeSpan = document.querySelector('#resp-' + panel + ' .response-time');
+      var spinner = btn.querySelector('.spinner');
+
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
+      respPre.textContent = 'Loading...';
+      timeSpan.textContent = '';
+
+      var opts = {};
+      var url;
+
+      if (method === 'GET') {
+        var textarea = document.querySelector('#req-get-' + panel + ' .request-area');
+        url = textarea.value.trim();
+        opts.method = 'GET';
+      } else {
+        url = '/events';
+        var textarea = document.querySelector('#req-post-' + panel + ' .request-area');
+        var body = textarea.value.trim();
+        opts.method = 'POST';
+        opts.headers = { 'Content-Type': 'application/json' };
+        opts.body = body;
+      }
+
+      var t0 = performance.now();
+      fetch(url, opts)
+        .then(function(r) { return r.text(); })
+        .then(function(text) {
+          var ms = Math.round(performance.now() - t0);
+          timeSpan.textContent = ms + ' ms';
+          try {
+            var json = JSON.parse(text);
+            respPre.textContent = JSON.stringify(json, null, 2);
+          } catch(e) {
+            respPre.textContent = text;
+          }
+        })
+        .catch(function(err) {
+          var ms = Math.round(performance.now() - t0);
+          timeSpan.textContent = ms + ' ms';
+          respPre.textContent = 'Error: ' + err.message;
+        })
+        .finally(function() {
+          btn.disabled = false;
+          spinner.style.display = 'none';
+        });
+    });
+  });
+})();
+</script>
+</body>
+</html>
