@@ -63,6 +63,7 @@ td code{border:none;padding:0;background:none;color:#79c0ff}
 .response-area{margin-top:12px}
 .response-area pre{max-height:400px;overflow-y:auto;margin:0}
 .response-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.response-time{float:right;font-variant-numeric:tabular-nums;color:#58a6ff}
 .spinner{display:none;width:16px;height:16px;border:2px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:spin .6s linear infinite;margin-left:8px;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 .filter-table td{vertical-align:top}
@@ -169,7 +170,7 @@ section{margin-bottom:40px}
   </div>
   <button class="submit-btn" data-panel="latest">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-latest">
-    <div class="response-label">Response</div>
+    <div class="response-label">Response<span class="response-time"></span></div>
     <pre>Click Submit to send a request.</pre>
   </div>
 </div>
@@ -193,7 +194,7 @@ section{margin-bottom:40px}
   </div>
   <button class="submit-btn" data-panel="bytype">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-bytype">
-    <div class="response-label">Response</div>
+    <div class="response-label">Response<span class="response-time"></span></div>
     <pre>Click Submit to send a request.</pre>
   </div>
 </div>
@@ -220,7 +221,7 @@ section{margin-bottom:40px}
   </div>
   <button class="submit-btn" data-panel="bytopics">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-bytopics">
-    <div class="response-label">Response</div>
+    <div class="response-label">Response<span class="response-time"></span></div>
     <pre>Click Submit to send a request.</pre>
   </div>
 </div>
@@ -244,7 +245,7 @@ section{margin-bottom:40px}
   </div>
   <button class="submit-btn" data-panel="bycontract">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-bycontract">
-    <div class="response-label">Response</div>
+    <div class="response-label">Response<span class="response-time"></span></div>
     <pre>Click Submit to send a request.</pre>
   </div>
 </div>
@@ -266,7 +267,7 @@ section{margin-bottom:40px}
   </div>
   <button class="submit-btn" data-panel="byledger">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-byledger">
-    <div class="response-label">Response</div>
+    <div class="response-label">Response<span class="response-time"></span></div>
     <pre>Click Submit to send a request.</pre>
   </div>
 </div>
@@ -288,7 +289,7 @@ section{margin-bottom:40px}
   </div>
   <button class="submit-btn" data-panel="pagination">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-pagination">
-    <div class="response-label">Response</div>
+    <div class="response-label">Response<span class="response-time"></span></div>
     <pre>Click Submit to send a request.</pre>
   </div>
 </div>
@@ -336,11 +337,13 @@ section{margin-bottom:40px}
       var activeToggle = document.querySelector('.toggle-btn.active[data-panel="' + panel + '"]');
       var method = activeToggle ? activeToggle.dataset.method : 'GET';
       var respPre = document.querySelector('#resp-' + panel + ' pre');
+      var timeSpan = document.querySelector('#resp-' + panel + ' .response-time');
       var spinner = btn.querySelector('.spinner');
 
       btn.disabled = true;
       spinner.style.display = 'inline-block';
       respPre.textContent = 'Loading...';
+      timeSpan.textContent = '';
 
       var opts = {};
       var url;
@@ -358,9 +361,12 @@ section{margin-bottom:40px}
         opts.body = body;
       }
 
+      var t0 = performance.now();
       fetch(url, opts)
         .then(function(r) { return r.text(); })
         .then(function(text) {
+          var ms = Math.round(performance.now() - t0);
+          timeSpan.textContent = ms + ' ms';
           try {
             var json = JSON.parse(text);
             respPre.textContent = JSON.stringify(json, null, 2);
@@ -369,6 +375,8 @@ section{margin-bottom:40px}
           }
         })
         .catch(function(err) {
+          var ms = Math.round(performance.now() - t0);
+          timeSpan.textContent = ms + ' ms';
           respPre.textContent = 'Error: ' + err.message;
         })
         .finally(function() {
