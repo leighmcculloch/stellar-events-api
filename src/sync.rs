@@ -188,6 +188,7 @@ enum SleepReason {
 }
 
 /// Fetch a ledger, decompress, parse, and extract events (no DB access).
+#[tracing::instrument(skip(client, meta_url, store_config))]
 pub async fn fetch_and_extract(
     client: &reqwest::Client,
     meta_url: &str,
@@ -197,6 +198,7 @@ pub async fn fetch_and_extract(
     let raw = fetch_ledger_raw(client, meta_url, store_config, ledger_sequence).await?;
     let batch = parse_ledger_batch(&raw)?;
     let events = extract_events(&batch);
+    tracing::trace!(ledger = ledger_sequence, events = events.len(), "extracted events");
     Ok(events)
 }
 

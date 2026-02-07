@@ -141,6 +141,7 @@ impl EventStore {
     }
 
     /// Insert extracted events into the store, grouped by ledger.
+    #[tracing::instrument(skip_all, fields(event_count = events.len()))]
     pub fn insert_events(&self, events: &[ExtractedEvent]) -> Result<(), crate::Error> {
         // Group events by ledger sequence.
         let mut by_ledger: HashMap<u32, Vec<&ExtractedEvent>> = HashMap::new();
@@ -202,7 +203,14 @@ impl EventStore {
                 expires_at: now + self.cache_ttl_seconds,
             });
 
+            let event_count = partition.events.len();
             self.ledgers.insert(ledger_seq, partition);
+
+            tracing::debug!(
+                ledger = ledger_seq,
+                events = event_count,
+                "inserted ledger partition"
+            );
 
             // Update latest ledger tracker.
             self.latest_ledger.fetch_max(ledger_seq, Ordering::Relaxed);
@@ -263,6 +271,7 @@ impl EventStore {
     }
 
     /// Query events with cursor-based pagination and filtering.
+    #[tracing::instrument(skip_all, fields(limit = params.limit, ledger = params.ledger, filters = params.filters.len()))]
     pub fn query_events(
         &self,
         params: &EventQueryParams,
@@ -474,6 +483,7 @@ impl EventStore {
     }
 
     /// Clean up expired cache entries. Returns the number of ledgers removed.
+    #[tracing::instrument(skip_all)]
     pub fn cleanup_expired(&self) -> Result<u64, crate::Error> {
         let now = chrono::Utc::now().timestamp();
         let mut removed = 0u64;
@@ -495,6 +505,11 @@ impl EventStore {
         if removed > 0 {
             let new_latest = self.ledgers.iter().map(|kv| *kv.key()).max().unwrap_or(0);
             self.latest_ledger.store(new_latest, Ordering::Relaxed);
+            tracing::debug!(
+                removed,
+                remaining = self.ledgers.len(),
+                "expired partitions removed"
+            );
         }
 
         Ok(removed)

@@ -61,6 +61,7 @@ pub struct ListEventsRequest {
 }
 
 /// GET /events
+#[tracing::instrument(skip_all, fields(method = "GET"))]
 pub async fn list_events_get(
     State(state): State<Arc<AppState>>,
     axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
@@ -111,6 +112,7 @@ pub async fn list_events_get(
 }
 
 /// POST /events
+#[tracing::instrument(skip_all, fields(method = "POST"))]
 pub async fn list_events_post(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ListEventsRequest>,
@@ -119,6 +121,7 @@ pub async fn list_events_post(
 }
 
 /// Fetch and cache historical ledgers on demand, starting at `target_ledger`.
+#[tracing::instrument(skip(state))]
 async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
     // Cap the range at the latest synced ledger — don't try to fetch future ledgers
     // since the sync task will handle those.
@@ -132,6 +135,8 @@ async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
     if uncached.is_empty() {
         return;
     }
+
+    tracing::debug!(count = uncached.len(), "backfilling uncached ledgers");
 
     // Fetch all uncached ledgers concurrently
     let futures: Vec<_> = uncached
@@ -163,6 +168,7 @@ async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
     }
 }
 
+#[tracing::instrument(skip_all, fields(limit = req.limit, ledger = req.ledger, filters = req.filters.len()))]
 async fn list_events(
     state: Arc<AppState>,
     req: ListEventsRequest,
@@ -228,6 +234,8 @@ async fn list_events(
         message: format!("database error: {}", e),
     })?;
 
+    tracing::debug!(events = result.data.len(), has_more = result.has_more, "query complete");
+
     let events: Vec<Event> = result.data.into_iter().map(Event::from).collect();
 
     let response = ListResponse {
@@ -241,6 +249,7 @@ async fn list_events(
 }
 
 /// GET /health
+#[tracing::instrument(skip_all)]
 pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, ApiError> {
     let earliest = state.store.earliest_ledger_sequence().map_err(|e| ApiError::Internal {
         message: format!("database error: {}", e),
