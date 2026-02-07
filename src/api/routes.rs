@@ -64,6 +64,11 @@ td code{border:none;padding:0;background:none;color:#79c0ff}
 .response-area pre{max-height:400px;overflow-y:auto;margin:0}
 .response-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
 .response-time{float:right;font-variant-numeric:tabular-nums;color:#58a6ff}
+.curl-area{margin-top:8px}
+.curl-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.curl-area pre{margin:0;white-space:pre-wrap;word-break:break-all;font-size:12px;padding:10px;cursor:pointer;position:relative}
+.curl-area pre:hover{border-color:#58a6ff}
+.copy-hint{font-size:11px;color:#484f58;font-weight:400;text-transform:none;letter-spacing:0}
 .spinner{display:none;width:16px;height:16px;border:2px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:spin .6s linear infinite;margin-left:8px;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 .filter-table td{vertical-align:top}
@@ -168,6 +173,10 @@ section{margin-bottom:40px}
   "limit": 5
 }</textarea>
   </div>
+  <div class="curl-area" id="curl-latest">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
+  </div>
   <button class="submit-btn" data-panel="latest">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-latest">
     <div class="response-label">Response<span class="response-time"></span></div>
@@ -191,6 +200,10 @@ section{margin-bottom:40px}
     { "type": "contract" }
   ]
 }</textarea>
+  </div>
+  <div class="curl-area" id="curl-bytype">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
   </div>
   <button class="submit-btn" data-panel="bytype">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-bytype">
@@ -219,6 +232,10 @@ section{margin-bottom:40px}
   ]
 }</textarea>
   </div>
+  <div class="curl-area" id="curl-bytopics">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
+  </div>
   <button class="submit-btn" data-panel="bytopics">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-bytopics">
     <div class="response-label">Response<span class="response-time"></span></div>
@@ -243,6 +260,10 @@ section{margin-bottom:40px}
   ]
 }</textarea>
   </div>
+  <div class="curl-area" id="curl-bycontract">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
+  </div>
   <button class="submit-btn" data-panel="bycontract">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-bycontract">
     <div class="response-label">Response<span class="response-time"></span></div>
@@ -264,6 +285,10 @@ section{margin-bottom:40px}
   "limit": 5,
   "ledger": 58000000
 }</textarea>
+  </div>
+  <div class="curl-area" id="curl-byledger">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
   </div>
   <button class="submit-btn" data-panel="byledger">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-byledger">
@@ -287,6 +312,10 @@ section{margin-bottom:40px}
   "after": "evt_0058000000_1_0080_0_0000"
 }</textarea>
   </div>
+  <div class="curl-area" id="curl-pagination">
+    <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+    <pre></pre>
+  </div>
   <button class="submit-btn" data-panel="pagination">Submit<span class="spinner"></span></button>
   <div class="response-area" id="resp-pagination">
     <div class="response-label">Response<span class="response-time"></span></div>
@@ -299,6 +328,43 @@ section{margin-bottom:40px}
 
 <script>
 (function() {
+  var origin = location.origin;
+
+  function buildCurl(panel) {
+    var activeToggle = document.querySelector('.toggle-btn.active[data-panel="' + panel + '"]');
+    var method = activeToggle ? activeToggle.dataset.method : 'GET';
+    var curlPre = document.querySelector('#curl-' + panel + ' pre');
+    if (method === 'GET') {
+      var url = document.querySelector('#req-get-' + panel + ' .request-area').value.trim();
+      curlPre.textContent = "curl '" + origin + url + "'";
+    } else {
+      var body = document.querySelector('#req-post-' + panel + ' .request-area').value.trim();
+      curlPre.textContent = "curl -X POST '" + origin + "/events' \\\n  -H 'Content-Type: application/json' \\\n  -d '" + body + "'";
+    }
+  }
+
+  // Build curl for all panels on load
+  var panels = ['latest','bytype','bytopics','bycontract','byledger','pagination'];
+  panels.forEach(buildCurl);
+
+  // Copy curl on click
+  document.querySelectorAll('.curl-area pre').forEach(function(pre) {
+    pre.addEventListener('click', function() {
+      navigator.clipboard.writeText(pre.textContent);
+      var hint = pre.parentElement.querySelector('.copy-hint');
+      hint.textContent = 'copied!';
+      setTimeout(function() { hint.textContent = 'click to copy'; }, 1500);
+    });
+  });
+
+  // Rebuild curl when textarea changes
+  document.querySelectorAll('.request-area').forEach(function(ta) {
+    ta.addEventListener('input', function() {
+      var panel = ta.closest('.tab-panel').id.replace('panel-', '');
+      buildCurl(panel);
+    });
+  });
+
   // Tabs
   document.getElementById('tabs').addEventListener('click', function(e) {
     var btn = e.target.closest('.tab');
@@ -327,6 +393,7 @@ section{margin-bottom:40px}
         getEl.style.display = 'none';
         postEl.style.display = '';
       }
+      buildCurl(panel);
     });
   });
 
