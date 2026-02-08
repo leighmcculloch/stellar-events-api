@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 
 use stellar_xdr::curr::{LedgerCloseMetaBatch, Limits, ReadXdr};
 
@@ -41,9 +41,7 @@ pub async fn fetch_ledger_raw(
     }
 
     let compressed = resp.bytes().await?;
-    let mut decoder = zstd::stream::Decoder::new(Cursor::new(compressed))?;
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed)?;
+    let decompressed = zstd::bulk::decompress(&compressed, 10 * 1024 * 1024)?;
 
     Ok(decompressed)
 }
