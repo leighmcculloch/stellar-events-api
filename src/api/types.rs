@@ -38,8 +38,11 @@ impl From<EventRow> for Event {
             .map(|dt| dt.to_rfc3339())
             .unwrap_or_default();
 
+        // Convert internal ID to opaque external format
+        let id = crate::ledger::events::to_external_id(&row.id).unwrap_or(row.id);
+
         Event {
-            id: row.id,
+            id,
             object: "event",
             event_type: row.event_type,
             ledger_sequence: row.ledger_sequence,

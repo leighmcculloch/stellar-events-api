@@ -1,3 +1,5 @@
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use stellar_xdr::curr::{
     ContractEvent, ContractEventType, LedgerCloseMeta, LedgerCloseMetaBatch, TransactionMeta,
     TransactionMetaV3, TransactionMetaV4,
@@ -104,20 +106,96 @@ pub fn event_id(
     )
 }
 
-/// Parse an event ID back into its components.
-pub fn parse_event_id(id: &str) -> Option<(u32, u32, u32)> {
+/// Parse an internal event ID back into its components.
+pub fn parse_event_id(id: &str) -> Option<(u32, u8, u32, u8, u32)> {
     let parts: Vec<&str> = id.strip_prefix("evt_")?.split('_').collect();
     if parts.len() != 5 {
         return None;
     }
-    let ledger_sequence = parts[0].parse().ok()?;
-    // parts[1] = phase, parts[2] = tx, parts[3] = sub, parts[4] = event
-    // All must be valid numbers for the ID to be valid
-    let _phase: u8 = parts[1].parse().ok()?;
-    let _tx: u32 = parts[2].parse().ok()?;
-    let _sub: u8 = parts[3].parse().ok()?;
-    let _event: u32 = parts[4].parse().ok()?;
-    Some((ledger_sequence, _tx, _event))
+    let ledger_sequence: u32 = parts[0].parse().ok()?;
+    let phase: u8 = parts[1].parse().ok()?;
+    let tx: u32 = parts[2].parse().ok()?;
+    let sub: u8 = parts[3].parse().ok()?;
+    let event: u32 = parts[4].parse().ok()?;
+    Some((ledger_sequence, phase, tx, sub, event))
+}
+
+/// Fixed XOR key for obfuscating event IDs.
+const XOR_KEY: [u8; 14] = [
+    0xa3, 0x7b, 0x1c, 0xf0, 0x5e, 0xd2, 0x94, 0x68, 0x0b, 0xe7, 0x3f, 0x81, 0xc6, 0x4d,
+];
+
+/// Encode event ID components into an opaque external format.
+///
+/// Packs 5 components into 14 bytes big-endian, XORs with a fixed key,
+/// then base64url encodes (no padding) with an `evt_` prefix.
+pub fn encode_event_id(
+    ledger_sequence: u32,
+    phase: u8,
+    tx_index: u32,
+    sub: u8,
+    event_index: u32,
+) -> String {
+    let mut buf = [0u8; 14];
+    buf[0..4].copy_from_slice(&ledger_sequence.to_be_bytes());
+    buf[4] = phase;
+    buf[5..9].copy_from_slice(&tx_index.to_be_bytes());
+    buf[9] = sub;
+    buf[10..14].copy_from_slice(&event_index.to_be_bytes());
+
+    for i in 0..14 {
+        buf[i] ^= XOR_KEY[i];
+    }
+
+    let encoded = URL_SAFE_NO_PAD.encode(buf);
+    format!("evt_{}", encoded)
+}
+
+/// Decode an opaque external event ID back into its components.
+pub fn decode_event_id(id: &str) -> Option<(u32, u8, u32, u8, u32)> {
+    let payload = id.strip_prefix("evt_")?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    if bytes.len() != 14 {
+        return None;
+    }
+
+    let mut buf = [0u8; 14];
+    buf.copy_from_slice(&bytes);
+    for i in 0..14 {
+        buf[i] ^= XOR_KEY[i];
+    }
+
+    let ledger_sequence = u32::from_be_bytes(buf[0..4].try_into().ok()?);
+    let phase = buf[4];
+    let tx_index = u32::from_be_bytes(buf[5..9].try_into().ok()?);
+    let sub = buf[9];
+    let event_index = u32::from_be_bytes(buf[10..14].try_into().ok()?);
+
+    // Validate ranges
+    if phase > 2 || sub > 1 {
+        return None;
+    }
+
+    Some((ledger_sequence, phase, tx_index, sub, event_index))
+}
+
+/// Convert an internal event ID to an opaque external ID.
+pub fn to_external_id(internal_id: &str) -> Option<String> {
+    let (ledger, phase, tx, sub, event) = parse_event_id(internal_id)?;
+    Some(encode_event_id(ledger, phase, tx, sub, event))
+}
+
+/// Convert an opaque external event ID to an internal ID.
+pub fn to_internal_id(external_id: &str) -> Option<String> {
+    let (ledger, phase, tx, sub, event) = decode_event_id(external_id)?;
+    let event_phase = match (phase, sub) {
+        (0, 0) => EventPhase::BeforeAllTxs,
+        (1, 0) => EventPhase::Operation,
+        (1, 1) => EventPhase::AfterTx,
+        (2, 0) => EventPhase::AfterAllTxs,
+        _ => return None,
+    };
+    Some(event_id(ledger, event_phase, tx, event))
 }
 
 /// Extract the ledger close time from a LedgerCloseMeta.
@@ -405,9 +483,11 @@ mod tests {
     fn test_event_id_roundtrip() {
         let id = event_id(58000000, EventPhase::Operation, 3, 7);
         assert_eq!(id, "evt_0058000000_1_0003_0_0007");
-        let (seq, tx, evt) = parse_event_id(&id).unwrap();
+        let (seq, phase, tx, sub, evt) = parse_event_id(&id).unwrap();
         assert_eq!(seq, 58000000);
+        assert_eq!(phase, 1);
         assert_eq!(tx, 3);
+        assert_eq!(sub, 0);
         assert_eq!(evt, 7);
     }
 
@@ -435,6 +515,55 @@ mod tests {
         assert_eq!(EventType::Contract.to_string(), "contract");
         assert_eq!(EventType::System.to_string(), "system");
         assert_eq!(EventType::Diagnostic.to_string(), "diagnostic");
+    }
+
+    #[test]
+    fn test_encode_decode_roundtrip() {
+        let external = encode_event_id(58000000, 1, 3, 0, 7);
+        assert!(external.starts_with("evt_"));
+        // Verify it's URL-safe: only alphanumeric, '-', '_'
+        let payload = external.strip_prefix("evt_").unwrap();
+        assert!(payload
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+
+        let (seq, phase, tx, sub, evt) = decode_event_id(&external).unwrap();
+        assert_eq!(seq, 58000000);
+        assert_eq!(phase, 1);
+        assert_eq!(tx, 3);
+        assert_eq!(sub, 0);
+        assert_eq!(evt, 7);
+    }
+
+    #[test]
+    fn test_encode_decode_all_phases() {
+        for (phase, sub) in [(0, 0), (1, 0), (1, 1), (2, 0)] {
+            let external = encode_event_id(100, phase, 5, sub, 10);
+            let (s, p, t, u, e) = decode_event_id(&external).unwrap();
+            assert_eq!((s, p, t, u, e), (100, phase, 5, sub, 10));
+        }
+    }
+
+    #[test]
+    fn test_decode_invalid_external_ids() {
+        assert!(decode_event_id("invalid").is_none());
+        assert!(decode_event_id("evt_").is_none());
+        assert!(decode_event_id("evt_!!!").is_none());
+        assert!(decode_event_id("evt_AAAA").is_none()); // too short after decode
+    }
+
+    #[test]
+    fn test_to_external_and_back() {
+        let internal = event_id(58000000, EventPhase::Operation, 3, 7);
+        let external = to_external_id(&internal).unwrap();
+        let back = to_internal_id(&external).unwrap();
+        assert_eq!(back, internal);
+    }
+
+    #[test]
+    fn test_to_internal_id_invalid() {
+        assert!(to_internal_id("evt_bad").is_none());
+        assert!(to_internal_id("not_an_id").is_none());
     }
 
     #[test]

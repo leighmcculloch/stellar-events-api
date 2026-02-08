@@ -19,6 +19,7 @@ pub fn router(state: Arc<AppState>, metrics_handle: Option<PrometheusHandle>) ->
             "/events",
             axum::routing::get(routes::list_events_get).post(routes::list_events_post),
         )
+        .route("/events/{id}", axum::routing::get(routes::get_event))
         .route("/health", axum::routing::get(routes::health));
 
     if let Some(handle) = metrics_handle {

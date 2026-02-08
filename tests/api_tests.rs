@@ -236,7 +236,7 @@ async fn test_pagination_forward() {
     assert_eq!(body["has_more"], true);
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 2);
-    assert!(data[0]["id"].as_str().unwrap() > last_id.as_str());
+    assert_ne!(data[0]["id"].as_str().unwrap(), last_id.as_str());
 
     // Third page (last)
     let last_id = data[1]["id"].as_str().unwrap().to_string();

@@ -389,7 +389,8 @@ impl EventStore {
         ledger_seqs.sort_unstable();
 
         // Parse cursor to determine starting ledger.
-        let cursor_ledger = crate::ledger::events::parse_event_id(after).map(|(seq, _, _)| seq);
+        let cursor_ledger =
+            crate::ledger::events::parse_event_id(after).map(|(seq, _, _, _, _)| seq);
 
         let fetch_limit = params.limit as usize + 1;
         let mut results: Vec<EventRow> = Vec::with_capacity(fetch_limit);
@@ -518,6 +519,26 @@ impl EventStore {
         }
 
         Ok(removed)
+    }
+
+    /// Look up a single event by ledger sequence and internal ID.
+    pub fn get_event(
+        &self,
+        ledger_seq: u32,
+        internal_id: &str,
+    ) -> Result<Option<EventRow>, crate::Error> {
+        let partition = match self.ledgers.get(&ledger_seq) {
+            Some(p) => Arc::clone(p.value()),
+            None => return Ok(None),
+        };
+
+        match partition
+            .events
+            .binary_search_by(|e| e.id.as_str().cmp(internal_id))
+        {
+            Ok(pos) => Ok(Some(partition.events[pos].to_event_row())),
+            Err(_) => Ok(None),
+        }
     }
 
     /// No-op (no query planner in in-memory store).

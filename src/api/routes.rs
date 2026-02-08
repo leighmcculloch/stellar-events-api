@@ -183,15 +183,22 @@ async fn list_events(
         });
     }
 
-    // Validate cursor if provided
-    if let Some(ref cursor) = req.after {
-        if crate::ledger::events::parse_event_id(cursor).is_none() {
+    // Validate and convert cursor from external to internal format if provided.
+    let after = if let Some(ref cursor) = req.after {
+        // Try decoding as an external (opaque) ID first, fall back to internal format.
+        if let Some(internal) = crate::ledger::events::to_internal_id(cursor) {
+            Some(internal)
+        } else if crate::ledger::events::parse_event_id(cursor).is_some() {
+            Some(cursor.clone())
+        } else {
             return Err(ApiError::BadRequest {
                 message: format!("invalid cursor: {}", cursor),
                 param: Some("after".to_string()),
             });
         }
-    }
+    } else {
+        None
+    };
 
     // tx requires a ledger to scope the search
     if req.tx.is_some() && req.ledger.is_none() {
@@ -214,8 +221,8 @@ async fn list_events(
     // Determine target ledger for on-demand backfill
     let target_ledger = if req.ledger.is_some() {
         req.ledger
-    } else if let Some(ref cursor) = req.after {
-        crate::ledger::events::parse_event_id(cursor).map(|(seq, _, _)| seq)
+    } else if let Some(ref cursor) = after {
+        crate::ledger::events::parse_event_id(cursor).map(|(seq, _, _, _, _)| seq)
     } else {
         None
     };
@@ -225,7 +232,7 @@ async fn list_events(
 
     let params = EventQueryParams {
         limit,
-        after: req.after,
+        after,
         ledger: req.ledger,
         tx: req.tx,
         filters: req.filters,
@@ -273,6 +280,59 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoRespo
     };
 
     Ok(Json(response))
+}
+
+/// GET /events/:id
+#[tracing::instrument(skip_all, fields(id = %id))]
+pub async fn get_event(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let start = std::time::Instant::now();
+
+    // Decode the external ID to get components.
+    let (ledger_seq, phase, tx_index, sub, event_index) =
+        crate::ledger::events::decode_event_id(&id).ok_or_else(|| ApiError::NotFound {
+            message: format!("event not found: {}", id),
+        })?;
+
+    // Reconstruct EventPhase; return 404 for invalid (phase, sub) combinations.
+    let event_phase = match (phase, sub) {
+        (0, 0) => crate::ledger::events::EventPhase::BeforeAllTxs,
+        (1, 0) => crate::ledger::events::EventPhase::Operation,
+        (1, 1) => crate::ledger::events::EventPhase::AfterTx,
+        (2, 0) => crate::ledger::events::EventPhase::AfterAllTxs,
+        _ => {
+            return Err(ApiError::NotFound {
+                message: format!("event not found: {}", id),
+            })
+        }
+    };
+
+    // Reconstruct internal ID for store lookup.
+    let internal_id =
+        crate::ledger::events::event_id(ledger_seq, event_phase, tx_index, event_index);
+
+    // Backfill the ledger on demand.
+    backfill_if_needed(&state, ledger_seq).await;
+
+    let row = state
+        .store
+        .get_event(ledger_seq, &internal_id)
+        .map_err(|e| ApiError::Internal {
+            message: format!("database error: {}", e),
+        })?
+        .ok_or_else(|| ApiError::NotFound {
+            message: format!("event not found: {}", id),
+        })?;
+
+    let event = Event::from(row);
+
+    metrics::counter!("api_requests_total", "endpoint" => "get_event").increment(1);
+    metrics::histogram!("api_request_duration_seconds", "endpoint" => "get_event")
+        .record(start.elapsed().as_secs_f64());
+
+    Ok(Json(event))
 }
 
 fn parse_u32_multi(
