@@ -28,20 +28,12 @@ pub struct Event {
 
 impl From<EventRow> for Event {
     fn from(row: EventRow) -> Self {
-        // Convert unix timestamp to ISO 8601
-        let closed_at = chrono::DateTime::from_timestamp(row.ledger_closed_at, 0)
-            .map(|dt| dt.to_rfc3339())
-            .unwrap_or_default();
-
-        // Convert internal ID to opaque external format
-        let id = crate::ledger::events::to_external_id(&row.id).unwrap_or(row.id);
-
         Event {
-            id,
+            id: row.id,
             object: "event",
-            event_type: row.event_type,
+            event_type: row.event_type.to_string(),
             ledger_sequence: row.ledger_sequence,
-            ledger_closed_at: closed_at,
+            ledger_closed_at: row.ledger_closed_at,
             contract_id: row.contract_id,
             tx_hash: row.tx_hash,
             topics: row.topics,

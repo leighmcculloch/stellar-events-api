@@ -9,3 +9,4 @@
 | 1 | Store serde_json::Value directly instead of JSON strings (eliminate Value→String→Value roundtrip) | 0.93 | Pipeline: 151µs→140µs (-7%), JSON serialize: 38µs→21µs (-45%) | Yes |
 | 2 | Replace hand-rolled base32+CRC16 strkey with stellar-strkey crate | 0.74 | Pipeline: 140µs→122µs (-13%), event extraction: 42µs→23µs (-45%) | Yes |
 | 3 | Bulk zstd decompress instead of streaming decoder | 0.78 | Pipeline: 122µs→108µs (-11%), fetch+decompress: 36µs→21µs (-42%) | Yes |
+| 4 | Pre-compute external IDs, timestamps, event_type during insertion | 0.69 | JSON serialize: 22µs→12µs (-45%), store insert: 20µs→30µs (+50%), net TOTAL: 108µs→107µs | Yes |

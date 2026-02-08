@@ -34,11 +34,13 @@ struct LedgerPartition {
 /// Internal event representation optimised for in-memory filtering.
 struct StoredEvent {
     id: String,
+    external_id: String,
     ledger_sequence: u32,
-    ledger_closed_at: i64,
+    ledger_closed_at: String,
     contract_id: Option<String>,
     /// 0 = contract, 1 = system, 2 = diagnostic
     event_type: u8,
+    event_type_str: &'static str,
     /// First topic as canonical JSON string (for fast indexed lookups).
     topic0: Option<String>,
     topic_count: usize,
@@ -49,18 +51,12 @@ struct StoredEvent {
 
 impl StoredEvent {
     fn to_event_row(&self) -> EventRow {
-        let event_type = match self.event_type {
-            0 => "contract",
-            1 => "system",
-            2 => "diagnostic",
-            _ => "unknown",
-        };
         EventRow {
-            id: self.id.clone(),
+            id: self.external_id.clone(),
             ledger_sequence: self.ledger_sequence,
-            ledger_closed_at: self.ledger_closed_at,
+            ledger_closed_at: self.ledger_closed_at.clone(),
             contract_id: self.contract_id.clone(),
-            event_type: event_type.to_string(),
+            event_type: self.event_type_str,
             topics: self.topics.clone(),
             data: self.data.clone(),
             tx_hash: self.tx_hash.clone(),
@@ -166,6 +162,8 @@ impl EventStore {
                     event.tx_index,
                     event.event_index,
                 );
+                let external_id =
+                    crate::ledger::events::to_external_id(&id).unwrap_or_else(|| id.clone());
                 let topics = serde_json::Value::Array(event.topics_xdr_json.clone());
                 let data = event.data_xdr_json.clone();
                 let topic0: Option<String> = event
@@ -173,18 +171,23 @@ impl EventStore {
                     .first()
                     .map(|v| serde_json::to_string(v).unwrap_or_default());
                 let topic_count = event.topics_xdr_json.len();
-                let event_type = match event.event_type {
-                    crate::ledger::events::EventType::Contract => 0u8,
-                    crate::ledger::events::EventType::System => 1u8,
-                    crate::ledger::events::EventType::Diagnostic => 2u8,
+                let (event_type, event_type_str) = match event.event_type {
+                    crate::ledger::events::EventType::Contract => (0u8, "contract"),
+                    crate::ledger::events::EventType::System => (1u8, "system"),
+                    crate::ledger::events::EventType::Diagnostic => (2u8, "diagnostic"),
                 };
+                let ledger_closed_at = chrono::DateTime::from_timestamp(event.ledger_closed_at, 0)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default();
 
                 stored.push(StoredEvent {
                     id,
+                    external_id,
                     ledger_sequence: event.ledger_sequence,
-                    ledger_closed_at: event.ledger_closed_at,
+                    ledger_closed_at,
                     contract_id: event.contract_id.clone(),
                     event_type,
+                    event_type_str,
                     topic0,
                     topic_count,
                     topics,
@@ -587,9 +590,9 @@ pub struct EventQueryResult {
 pub struct EventRow {
     pub id: String,
     pub ledger_sequence: u32,
-    pub ledger_closed_at: i64,
+    pub ledger_closed_at: String,
     pub contract_id: Option<String>,
-    pub event_type: String,
+    pub event_type: &'static str,
     pub topics: serde_json::Value,
     pub data: serde_json::Value,
     pub tx_hash: String,
