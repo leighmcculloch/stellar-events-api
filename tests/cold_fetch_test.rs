@@ -9,7 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use stellar_events_api::api;
-use stellar_events_api::db::EventStore;
+use stellar_events_api::db::{EventQueryParams, EventStore};
+use stellar_events_api::ledger::events::extract_events;
+use stellar_events_api::ledger::fetch::{fetch_ledger_raw, parse_ledger_batch};
 use stellar_events_api::ledger::path::StoreConfig;
 use stellar_events_api::AppState;
 
@@ -250,5 +252,120 @@ async fn test_cold_fetch_latency() {
     eprintln!("  avg:  {:>8}µs ({:.2}ms)", avg, avg as f64 / 1000.0);
     eprintln!("  p95:  {:>8}µs ({:.2}ms)", p95, p95 as f64 / 1000.0);
     eprintln!("  max:  {:>8}µs ({:.2}ms)", max, max as f64 / 1000.0);
+    eprintln!();
+}
+
+/// Stage-by-stage breakdown of the cold-fetch pipeline.
+/// Calls internal functions directly (bypassing the HTTP API layer) to isolate
+/// where time is spent: fetch+decompress, XDR parse, event extraction,
+/// store insert, query, and JSON serialization.
+#[tokio::test]
+async fn test_cold_fetch_breakdown() {
+    let compressed = build_test_ledger_compressed(1000, 10, 5);
+    let mock_url = start_mock_s3(compressed).await;
+    let client = reqwest::Client::new();
+    let config = StoreConfig::default();
+
+    let iterations = 20;
+    let mut t_fetch = Vec::new();
+    let mut t_parse = Vec::new();
+    let mut t_extract = Vec::new();
+    let mut t_insert = Vec::new();
+    let mut t_query = Vec::new();
+    let mut t_json = Vec::new();
+
+    for _ in 0..iterations {
+        // Stage 1: HTTP fetch + zstd decompress
+        let s = std::time::Instant::now();
+        let raw = fetch_ledger_raw(&client, &mock_url, &config, 1000)
+            .await
+            .unwrap();
+        t_fetch.push(s.elapsed());
+
+        // Stage 2: XDR parse
+        let s = std::time::Instant::now();
+        let batch = parse_ledger_batch(&raw).unwrap();
+        t_parse.push(s.elapsed());
+
+        // Stage 3: Event extraction
+        let s = std::time::Instant::now();
+        let events = extract_events(&batch);
+        t_extract.push(s.elapsed());
+
+        assert_eq!(events.len(), 50);
+
+        // Stage 4: Store insertion
+        let store = EventStore::new(24 * 60 * 60);
+        let s = std::time::Instant::now();
+        store.insert_events(&events).unwrap();
+        t_insert.push(s.elapsed());
+
+        // Stage 5: Query
+        let params = EventQueryParams {
+            limit: 100,
+            after: None,
+            ledger: Some(1000),
+            tx: None,
+            filters: vec![],
+        };
+        let s = std::time::Instant::now();
+        let result = store.query_events(&params).unwrap();
+        t_query.push(s.elapsed());
+
+        assert_eq!(result.data.len(), 50);
+
+        // Stage 6: Event conversion + JSON serialization
+        let s = std::time::Instant::now();
+        let events: Vec<stellar_events_api::api::types::Event> =
+            result.data.into_iter().map(|r| r.into()).collect();
+        let _json = serde_json::to_string(&events).unwrap();
+        t_json.push(s.elapsed());
+    }
+
+    fn p50_us(v: &mut Vec<Duration>) -> u128 {
+        v.sort();
+        v[v.len() / 2].as_micros()
+    }
+
+    let total = p50_us(&mut t_fetch)
+        + p50_us(&mut t_parse)
+        + p50_us(&mut t_extract)
+        + p50_us(&mut t_insert)
+        + p50_us(&mut t_query)
+        + p50_us(&mut t_json);
+
+    eprintln!();
+    eprintln!("=== Cold Fetch Breakdown (p50, {} iterations) ===", iterations);
+    eprintln!(
+        "  fetch+decompress: {:>6}µs ({:.0}%)",
+        p50_us(&mut t_fetch),
+        p50_us(&mut t_fetch) as f64 / total as f64 * 100.0
+    );
+    eprintln!(
+        "  XDR parse:        {:>6}µs ({:.0}%)",
+        p50_us(&mut t_parse),
+        p50_us(&mut t_parse) as f64 / total as f64 * 100.0
+    );
+    eprintln!(
+        "  event extraction: {:>6}µs ({:.0}%)",
+        p50_us(&mut t_extract),
+        p50_us(&mut t_extract) as f64 / total as f64 * 100.0
+    );
+    eprintln!(
+        "  store insert:     {:>6}µs ({:.0}%)",
+        p50_us(&mut t_insert),
+        p50_us(&mut t_insert) as f64 / total as f64 * 100.0
+    );
+    eprintln!(
+        "  query:            {:>6}µs ({:.0}%)",
+        p50_us(&mut t_query),
+        p50_us(&mut t_query) as f64 / total as f64 * 100.0
+    );
+    eprintln!(
+        "  JSON serialize:   {:>6}µs ({:.0}%)",
+        p50_us(&mut t_json),
+        p50_us(&mut t_json) as f64 / total as f64 * 100.0
+    );
+    eprintln!("  TOTAL:            {:>6}µs", total);
     eprintln!();
 }
