@@ -225,7 +225,7 @@ fn extract_contract_event(
     Vec<serde_json::Value>,
     serde_json::Value,
 ) {
-    let contract_id = event.contract_id.as_ref().map(|id| stellar_strkey(&id.0));
+    let contract_id = event.contract_id.as_ref().map(|id| contract_strkey(&id.0));
     let event_type = EventType::from(event.type_);
 
     let (topics, data) = match &event.body {
@@ -244,58 +244,8 @@ fn extract_contract_event(
 }
 
 /// Convert a contract ID hash to Stellar strkey format (C...).
-fn stellar_strkey(hash: &stellar_xdr::curr::Hash) -> String {
-    // Contract IDs use the 'C' prefix in strkey encoding.
-    // The strkey format is: version_byte + payload + checksum
-    // For contract: version_byte = 2 (shifted: 2 << 3 = 16)
-    let version_byte: u8 = 2 << 3; // Contract = 'C'
-    let mut payload = vec![version_byte];
-    payload.extend_from_slice(hash.as_ref());
-
-    // CRC16-XModem checksum
-    let checksum = crc16_xmodem(&payload);
-    payload.push((checksum & 0xFF) as u8);
-    payload.push((checksum >> 8) as u8);
-
-    // Base32 encode (no padding)
-    base32_encode(&payload)
-}
-
-fn crc16_xmodem(data: &[u8]) -> u16 {
-    let mut crc: u16 = 0;
-    for &byte in data {
-        crc ^= (byte as u16) << 8;
-        for _ in 0..8 {
-            if crc & 0x8000 != 0 {
-                crc = (crc << 1) ^ 0x1021;
-            } else {
-                crc <<= 1;
-            }
-        }
-    }
-    crc
-}
-
-fn base32_encode(data: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-    let mut result = String::new();
-    let mut buffer: u64 = 0;
-    let mut bits = 0;
-
-    for &byte in data {
-        buffer = (buffer << 8) | byte as u64;
-        bits += 8;
-        while bits >= 5 {
-            bits -= 5;
-            result.push(ALPHABET[((buffer >> bits) & 0x1F) as usize] as char);
-        }
-    }
-    if bits > 0 {
-        buffer <<= 5 - bits;
-        result.push(ALPHABET[(buffer & 0x1F) as usize] as char);
-    }
-
-    result
+fn contract_strkey(hash: &stellar_xdr::curr::Hash) -> String {
+    stellar_strkey::Contract(hash.0).to_string()
 }
 
 /// Extract events from a single transaction's `TransactionMeta`.
@@ -564,12 +514,5 @@ mod tests {
     fn test_to_internal_id_invalid() {
         assert!(to_internal_id("evt_bad").is_none());
         assert!(to_internal_id("not_an_id").is_none());
-    }
-
-    #[test]
-    fn test_crc16_xmodem() {
-        // Known test vector
-        let data = b"123456789";
-        assert_eq!(crc16_xmodem(data), 0x31C3);
     }
 }

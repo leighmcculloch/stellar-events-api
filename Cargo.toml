@@ -48,6 +48,9 @@ thiserror = "2"
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
+# Stellar strkey encoding
+stellar-strkey = "0.0.13"
+
 # Hex encoding
 hex = "0.4"
 
