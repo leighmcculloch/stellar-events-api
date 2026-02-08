@@ -373,7 +373,17 @@ fn push_event(
 
 /// Extract all events from a LedgerCloseMetaBatch.
 pub fn extract_events(batch: &LedgerCloseMetaBatch) -> Vec<ExtractedEvent> {
-    let mut events = Vec::new();
+    // Pre-allocate based on number of transactions (heuristic: ~5 events per tx).
+    let tx_count: usize = batch
+        .ledger_close_metas
+        .iter()
+        .map(|m| match m {
+            LedgerCloseMeta::V0(v0) => v0.tx_processing.len(),
+            LedgerCloseMeta::V1(v1) => v1.tx_processing.len(),
+            LedgerCloseMeta::V2(v2) => v2.tx_processing.len(),
+        })
+        .sum();
+    let mut events = Vec::with_capacity(tx_count * 5);
 
     for ledger_meta in batch.ledger_close_metas.iter() {
         let seq = ledger_sequence_num(ledger_meta);

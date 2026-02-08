@@ -12,3 +12,4 @@
 | 4 | Pre-compute external IDs, timestamps, event_type during insertion | 0.69 | JSON serialize: 22µs→12µs (-45%), store insert: 20µs→30µs (+50%), net TOTAL: 108µs→107µs | Yes |
 | 5 | Use Arc\<str\> for tx_hash to share across events in same tx | 0.69 | No meaningful change (noise), adds complexity | No |
 | 6 | Move-semantics for insert_events (avoid cloning topics/data Values) | 0.62 | Pipeline: 107µs→95µs (-11%), store insert: 30µs→20µs (-33%) | Yes |
+| 7 | Pre-allocate Vec in extract_events with tx_count heuristic | 0.62 | No measurable change at 50 events, good practice for larger workloads | Yes |
