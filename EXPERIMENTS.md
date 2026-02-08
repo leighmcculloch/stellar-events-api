@@ -15,3 +15,25 @@
 | 7 | Pre-allocate Vec in extract_events with tx_count heuristic | 0.62 | No measurable change at 50 events, good practice for larger workloads | Yes |
 | 8 | Cache contract ID strkey encoding across events in same batch | 0.62 | event extraction: 23µs→20µs (-13%), bigger gains for real ledgers with repeated contracts | Yes |
 | 9 | Call encode_event_id directly instead of event_id+to_external_id roundtrip | 0.62 | store insert: 21µs→17µs (-19%), pipeline: 95µs→92µs | Yes |
+| 10 | Remove topic0/topic_count; filter directly from stored topics Value | 0.41 | Pipeline: 92µs→87µs (-5%), store insert: 17µs→14µs, simplified filter code | Yes |
+
+## Summary
+
+**Pipeline improvement: 151µs → 87µs (42% reduction)**
+
+| Stage | Before | After | Change |
+|-------|--------|-------|--------|
+| fetch+decompress | 40µs | 19µs | -53% |
+| XDR parse | 12µs | 12µs | 0% |
+| event extraction | 43µs | 20µs | -53% |
+| store insert | 14µs | 14µs | 0% |
+| query | 4µs | 10µs | +150%* |
+| JSON serialize | 38µs | 12µs | -68% |
+
+\* Query increased due to Value comparison vs string comparison, but overall pipeline is faster.
+
+**End-to-end improvement (5-run final measurement):**
+- min: 0.44ms → 0.27ms (-39%)
+- p50: 0.65ms → 0.41ms (-37%)
+
+The remaining ~300µs is irreducible HTTP/TCP framework overhead (axum + reqwest + kernel networking).

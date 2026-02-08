@@ -41,9 +41,6 @@ struct StoredEvent {
     /// 0 = contract, 1 = system, 2 = diagnostic
     event_type: u8,
     event_type_str: &'static str,
-    /// First topic as canonical JSON string (for fast indexed lookups).
-    topic0: Option<String>,
-    topic_count: usize,
     topics: serde_json::Value,
     data: serde_json::Value,
     tx_hash: String,
@@ -86,35 +83,20 @@ impl StoredEvent {
 
         if let Some(ref topics) = filter.topics {
             if !topics.is_empty() {
-                if self.topic_count < topics.len() {
+                let stored = match self.topics.as_array() {
+                    Some(v) => v,
+                    None => return false,
+                };
+                if stored.len() < topics.len() {
                     return false;
                 }
-
-                // Check topic0 from the pre-extracted field
-                if let Some(ref topic_val) = topics.first() {
-                    if topic_val.as_str() != Some("*") {
-                        let expected = serde_json::to_string(topic_val).unwrap_or_default();
-                        match &self.topic0 {
-                            Some(t0) if *t0 == expected => {}
-                            _ => return false,
-                        }
+                for (i, topic_val) in topics.iter().enumerate() {
+                    if topic_val.as_str() == Some("*") {
+                        continue;
                     }
-                }
-
-                // Check topics at positions >= 1 from stored Value
-                if topics.len() > 1 {
-                    let parsed = match self.topics.as_array() {
-                        Some(v) => v,
-                        None => return false,
-                    };
-                    for (i, topic_val) in topics.iter().enumerate().skip(1) {
-                        if topic_val.as_str() == Some("*") {
-                            continue;
-                        }
-                        match parsed.get(i) {
-                            Some(actual) if actual == topic_val => {}
-                            _ => return false,
-                        }
+                    match stored.get(i) {
+                        Some(actual) if actual == topic_val => {}
+                        _ => return false,
                     }
                 }
             }
@@ -170,11 +152,6 @@ impl EventStore {
                     sub,
                     event.event_index,
                 );
-                let topic0: Option<String> = event
-                    .topics_xdr_json
-                    .first()
-                    .map(|v| serde_json::to_string(v).unwrap_or_default());
-                let topic_count = event.topics_xdr_json.len();
                 let (event_type, event_type_str) = match event.event_type {
                     crate::ledger::events::EventType::Contract => (0u8, "contract"),
                     crate::ledger::events::EventType::System => (1u8, "system"),
@@ -194,8 +171,6 @@ impl EventStore {
                     contract_id: event.contract_id,
                     event_type,
                     event_type_str,
-                    topic0,
-                    topic_count,
                     topics,
                     data,
                     tx_hash: event.tx_hash,
