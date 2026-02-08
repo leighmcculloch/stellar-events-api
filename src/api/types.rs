@@ -28,11 +28,6 @@ pub struct Event {
 
 impl From<EventRow> for Event {
     fn from(row: EventRow) -> Self {
-        let topics: serde_json::Value =
-            serde_json::from_str(&row.topics_json).unwrap_or(serde_json::Value::Null);
-        let data: serde_json::Value =
-            serde_json::from_str(&row.data_json).unwrap_or(serde_json::Value::Null);
-
         // Convert unix timestamp to ISO 8601
         let closed_at = chrono::DateTime::from_timestamp(row.ledger_closed_at, 0)
             .map(|dt| dt.to_rfc3339())
@@ -49,8 +44,8 @@ impl From<EventRow> for Event {
             ledger_closed_at: closed_at,
             contract_id: row.contract_id,
             tx_hash: row.tx_hash,
-            topics,
-            data,
+            topics: row.topics,
+            data: row.data,
         }
     }
 }

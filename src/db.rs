@@ -42,8 +42,8 @@ struct StoredEvent {
     /// First topic as canonical JSON string (for fast indexed lookups).
     topic0: Option<String>,
     topic_count: usize,
-    topics_json: String,
-    data_json: String,
+    topics: serde_json::Value,
+    data: serde_json::Value,
     tx_hash: String,
 }
 
@@ -61,8 +61,8 @@ impl StoredEvent {
             ledger_closed_at: self.ledger_closed_at,
             contract_id: self.contract_id.clone(),
             event_type: event_type.to_string(),
-            topics_json: self.topics_json.clone(),
-            data_json: self.data_json.clone(),
+            topics: self.topics.clone(),
+            data: self.data.clone(),
             tx_hash: self.tx_hash.clone(),
         }
     }
@@ -105,13 +105,12 @@ impl StoredEvent {
                     }
                 }
 
-                // Check topics at positions >= 1 by parsing topics_json
+                // Check topics at positions >= 1 from stored Value
                 if topics.len() > 1 {
-                    let parsed: Vec<serde_json::Value> =
-                        match serde_json::from_str(&self.topics_json) {
-                            Ok(v) => v,
-                            Err(_) => return false,
-                        };
+                    let parsed = match self.topics.as_array() {
+                        Some(v) => v,
+                        None => return false,
+                    };
                     for (i, topic_val) in topics.iter().enumerate().skip(1) {
                         if topic_val.as_str() == Some("*") {
                             continue;
@@ -167,8 +166,8 @@ impl EventStore {
                     event.tx_index,
                     event.event_index,
                 );
-                let topics_json = serde_json::to_string(&event.topics_xdr_json)?;
-                let data_json = serde_json::to_string(&event.data_xdr_json)?;
+                let topics = serde_json::Value::Array(event.topics_xdr_json.clone());
+                let data = event.data_xdr_json.clone();
                 let topic0: Option<String> = event
                     .topics_xdr_json
                     .first()
@@ -188,8 +187,8 @@ impl EventStore {
                     event_type,
                     topic0,
                     topic_count,
-                    topics_json,
-                    data_json,
+                    topics,
+                    data,
                     tx_hash: event.tx_hash.clone(),
                 });
             }
@@ -591,7 +590,7 @@ pub struct EventRow {
     pub ledger_closed_at: i64,
     pub contract_id: Option<String>,
     pub event_type: String,
-    pub topics_json: String,
-    pub data_json: String,
+    pub topics: serde_json::Value,
+    pub data: serde_json::Value,
     pub tx_hash: String,
 }
