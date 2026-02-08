@@ -137,9 +137,9 @@ impl EventStore {
 
     /// Insert extracted events into the store, grouped by ledger.
     #[tracing::instrument(skip_all, fields(event_count = events.len()))]
-    pub fn insert_events(&self, events: &[ExtractedEvent]) -> Result<(), crate::Error> {
+    pub fn insert_events(&self, events: Vec<ExtractedEvent>) -> Result<(), crate::Error> {
         // Group events by ledger sequence.
-        let mut by_ledger: HashMap<u32, Vec<&ExtractedEvent>> = HashMap::new();
+        let mut by_ledger: HashMap<u32, Vec<ExtractedEvent>> = HashMap::new();
         for event in events {
             by_ledger
                 .entry(event.ledger_sequence)
@@ -155,7 +155,7 @@ impl EventStore {
 
             let mut stored: Vec<StoredEvent> = Vec::with_capacity(ledger_events.len());
 
-            for event in &ledger_events {
+            for event in ledger_events {
                 let id = crate::ledger::events::event_id(
                     event.ledger_sequence,
                     event.phase,
@@ -164,8 +164,6 @@ impl EventStore {
                 );
                 let external_id =
                     crate::ledger::events::to_external_id(&id).unwrap_or_else(|| id.clone());
-                let topics = serde_json::Value::Array(event.topics_xdr_json.clone());
-                let data = event.data_xdr_json.clone();
                 let topic0: Option<String> = event
                     .topics_xdr_json
                     .first()
@@ -179,20 +177,22 @@ impl EventStore {
                 let ledger_closed_at = chrono::DateTime::from_timestamp(event.ledger_closed_at, 0)
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default();
+                let topics = serde_json::Value::Array(event.topics_xdr_json);
+                let data = event.data_xdr_json;
 
                 stored.push(StoredEvent {
                     id,
                     external_id,
                     ledger_sequence: event.ledger_sequence,
                     ledger_closed_at,
-                    contract_id: event.contract_id.clone(),
+                    contract_id: event.contract_id,
                     event_type,
                     event_type_str,
                     topic0,
                     topic_count,
                     topics,
                     data,
-                    tx_hash: event.tx_hash.clone(),
+                    tx_hash: event.tx_hash,
                 });
             }
 

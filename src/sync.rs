@@ -113,7 +113,7 @@ pub async fn run_sync(
                 Ok(events) => {
                     let event_count = events.len();
                     let db_result = (|| -> Result<(), crate::Error> {
-                        state.store.insert_events(&events)?;
+                        state.store.insert_events(events)?;
                         state.store.record_ledger_cached(seq, 0)?;
                         state
                             .store

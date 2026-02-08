@@ -297,7 +297,7 @@ async fn test_cold_fetch_breakdown() {
         // Stage 4: Store insertion
         let store = EventStore::new(24 * 60 * 60);
         let s = std::time::Instant::now();
-        store.insert_events(&events).unwrap();
+        store.insert_events(events).unwrap();
         t_insert.push(s.elapsed());
 
         // Stage 5: Query

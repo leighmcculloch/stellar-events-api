@@ -11,7 +11,7 @@ use stellar_events_api::AppState;
 async fn start_test_server(events: Vec<ExtractedEvent>) -> String {
     let store = EventStore::new(24 * 60 * 60);
     if !events.is_empty() {
-        store.insert_events(&events).expect("failed to insert events");
+        store.insert_events(events).expect("failed to insert events");
     }
 
     let state = Arc::new(AppState {

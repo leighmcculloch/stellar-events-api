@@ -150,7 +150,7 @@ async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
         let seq = uncached[i];
         match result {
             Ok(events) => {
-                if let Err(e) = state.store.insert_events(&events) {
+                if let Err(e) = state.store.insert_events(events) {
                     tracing::warn!(ledger = seq, error = %e, "backfill: failed to insert events");
                     continue;
                 }
