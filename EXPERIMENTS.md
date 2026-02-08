@@ -14,3 +14,4 @@
 | 6 | Move-semantics for insert_events (avoid cloning topics/data Values) | 0.62 | Pipeline: 107µs→95µs (-11%), store insert: 30µs→20µs (-33%) | Yes |
 | 7 | Pre-allocate Vec in extract_events with tx_count heuristic | 0.62 | No measurable change at 50 events, good practice for larger workloads | Yes |
 | 8 | Cache contract ID strkey encoding across events in same batch | 0.62 | event extraction: 23µs→20µs (-13%), bigger gains for real ledgers with repeated contracts | Yes |
+| 9 | Call encode_event_id directly instead of event_id+to_external_id roundtrip | 0.62 | store insert: 21µs→17µs (-19%), pipeline: 95µs→92µs | Yes |

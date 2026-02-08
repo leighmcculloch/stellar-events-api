@@ -162,8 +162,14 @@ impl EventStore {
                     event.tx_index,
                     event.event_index,
                 );
-                let external_id =
-                    crate::ledger::events::to_external_id(&id).unwrap_or_else(|| id.clone());
+                let (phase, sub) = event.phase.as_phase_sub();
+                let external_id = crate::ledger::events::encode_event_id(
+                    event.ledger_sequence,
+                    phase,
+                    event.tx_index,
+                    sub,
+                    event.event_index,
+                );
                 let topic0: Option<String> = event
                     .topics_xdr_json
                     .first()
