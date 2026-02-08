@@ -219,13 +219,17 @@ fn ledger_sequence_num(meta: &LedgerCloseMeta) -> u32 {
 /// Extract contract events from a single ContractEvent XDR.
 fn extract_contract_event(
     event: &ContractEvent,
+    id_cache: &mut ContractIdCache,
 ) -> (
     Option<String>,
     EventType,
     Vec<serde_json::Value>,
     serde_json::Value,
 ) {
-    let contract_id = event.contract_id.as_ref().map(|id| contract_strkey(&id.0));
+    let contract_id = event
+        .contract_id
+        .as_ref()
+        .map(|id| id_cache.get_or_insert(&id.0));
     let event_type = EventType::from(event.type_);
 
     let (topics, data) = match &event.body {
@@ -256,13 +260,14 @@ fn extract_events_from_tx_meta(
     tx_idx: u32,
     tx_hash: &str,
     events: &mut Vec<ExtractedEvent>,
+    id_cache: &mut ContractIdCache,
 ) {
     match tx_meta {
         TransactionMeta::V3(v3) => {
-            extract_events_from_v3(v3, seq, close_time, tx_idx, tx_hash, events);
+            extract_events_from_v3(v3, seq, close_time, tx_idx, tx_hash, events, id_cache);
         }
         TransactionMeta::V4(v4) => {
-            extract_events_from_v4(v4, seq, close_time, tx_idx, tx_hash, events);
+            extract_events_from_v4(v4, seq, close_time, tx_idx, tx_hash, events, id_cache);
         }
         _ => {}
     }
@@ -277,6 +282,7 @@ fn extract_events_from_v3(
     tx_idx: u32,
     tx_hash: &str,
     events: &mut Vec<ExtractedEvent>,
+    id_cache: &mut ContractIdCache,
 ) {
     if let Some(soroban) = &v3.soroban_meta {
         for (evt_idx, contract_event) in soroban.events.iter().enumerate() {
@@ -289,6 +295,7 @@ fn extract_events_from_v3(
                 evt_idx as u32,
                 tx_hash,
                 events,
+                id_cache,
             );
         }
     }
@@ -305,6 +312,7 @@ fn extract_events_from_v4(
     tx_idx: u32,
     tx_hash: &str,
     events: &mut Vec<ExtractedEvent>,
+    id_cache: &mut ContractIdCache,
 ) {
     // Operation-level events, flattened across all operations
     let mut op_evt_idx: u32 = 0;
@@ -319,6 +327,7 @@ fn extract_events_from_v4(
                 op_evt_idx,
                 tx_hash,
                 events,
+                id_cache,
             );
             op_evt_idx += 1;
         }
@@ -340,6 +349,7 @@ fn extract_events_from_v4(
             evt_idx as u32,
             tx_hash,
             events,
+            id_cache,
         );
     }
 }
@@ -354,8 +364,9 @@ fn push_event(
     evt_idx: u32,
     tx_hash: &str,
     events: &mut Vec<ExtractedEvent>,
+    id_cache: &mut ContractIdCache,
 ) {
-    let (contract_id, event_type, topics, data) = extract_contract_event(contract_event);
+    let (contract_id, event_type, topics, data) = extract_contract_event(contract_event, id_cache);
 
     events.push(ExtractedEvent {
         ledger_sequence: seq,
@@ -371,6 +382,27 @@ fn push_event(
     });
 }
 
+/// Cache for contract ID strkey encoding, avoiding redundant conversions
+/// for events from the same contract within a batch.
+struct ContractIdCache {
+    cache: std::collections::HashMap<[u8; 32], String>,
+}
+
+impl ContractIdCache {
+    fn new() -> Self {
+        Self {
+            cache: std::collections::HashMap::new(),
+        }
+    }
+
+    fn get_or_insert(&mut self, hash: &stellar_xdr::curr::Hash) -> String {
+        self.cache
+            .entry(hash.0)
+            .or_insert_with(|| contract_strkey(hash))
+            .clone()
+    }
+}
+
 /// Extract all events from a LedgerCloseMetaBatch.
 pub fn extract_events(batch: &LedgerCloseMetaBatch) -> Vec<ExtractedEvent> {
     // Pre-allocate based on number of transactions (heuristic: ~5 events per tx).
@@ -384,6 +416,7 @@ pub fn extract_events(batch: &LedgerCloseMetaBatch) -> Vec<ExtractedEvent> {
         })
         .sum();
     let mut events = Vec::with_capacity(tx_count * 5);
+    let mut id_cache = ContractIdCache::new();
 
     for ledger_meta in batch.ledger_close_metas.iter() {
         let seq = ledger_sequence_num(ledger_meta);
@@ -400,6 +433,7 @@ pub fn extract_events(batch: &LedgerCloseMetaBatch) -> Vec<ExtractedEvent> {
                         tx_idx as u32,
                         &tx_hash,
                         &mut events,
+                        &mut id_cache,
                     );
                 }
             }
@@ -413,6 +447,7 @@ pub fn extract_events(batch: &LedgerCloseMetaBatch) -> Vec<ExtractedEvent> {
                         tx_idx as u32,
                         &tx_hash,
                         &mut events,
+                        &mut id_cache,
                     );
                 }
             }
@@ -426,6 +461,7 @@ pub fn extract_events(batch: &LedgerCloseMetaBatch) -> Vec<ExtractedEvent> {
                         tx_idx as u32,
                         &tx_hash,
                         &mut events,
+                        &mut id_cache,
                     );
                 }
             }
