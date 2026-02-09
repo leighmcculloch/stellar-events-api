@@ -68,7 +68,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 </header>
 
 <!-- GET/POST /events -->
-<details open>
+<details>
   <summary>
     <span class="method method-get">GET</span>
     <span class="method method-post">POST</span>
@@ -272,12 +272,12 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       <button class="toggle-btn" data-method="POST" data-panel="pagination">POST</button>
     </div>
     <div class="request-get" id="req-get-pagination">
-      <textarea class="request-area" rows="1">/events?limit=5&after=evt_0058000000_1_0080_0_0000</textarea>
+      <textarea class="request-area" rows="1">/events?limit=5&after=evt_gvBRkuemgevvRRfRkzRtrTi</textarea>
     </div>
     <div class="request-post" id="req-post-pagination" style="display:none">
       <textarea class="request-area" rows="4">{
   "limit": 5,
-  "after": "evt_0058000000_1_0080_0_0000"
+  "after": "evt_gvBRkuemgevvRRfRkzRtrTi"
 }</textarea>
     </div>
     <div class="curl-area" id="curl-pagination">
@@ -348,10 +348,9 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   <h3>Response</h3>
   <pre>{
   "status": "ok",
-  "earliest_ledger": 12000,
   "latest_ledger": 12345,
-  "network_passphrase": "...",
-  "version": "0.1.0"
+  "cached_ledgers": 7200,
+  "network_passphrase": "..."
 }</pre>
 
   <h3>Try it</h3>

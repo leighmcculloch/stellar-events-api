@@ -91,8 +91,7 @@ pub struct ErrorBody {
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
     pub status: String,
-    pub earliest_ledger: Option<u32>,
     pub latest_ledger: Option<u32>,
+    pub cached_ledgers: usize,
     pub network_passphrase: String,
-    pub version: String,
 }

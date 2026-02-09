@@ -919,5 +919,5 @@ async fn test_status_endpoint() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["status"], "ok");
     assert!(body["network_passphrase"].is_string());
-    assert!(body["version"].is_string());
+    assert!(body["cached_ledgers"].is_number());
 }

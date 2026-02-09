@@ -460,16 +460,9 @@ impl EventStore {
         Ok(if v == 0 { None } else { Some(v) })
     }
 
-    /// Get the lowest non-expired ledger sequence.
-    pub fn earliest_ledger_sequence(&self) -> Result<Option<u32>, crate::Error> {
-        let now = chrono::Utc::now().timestamp();
-        let min = self
-            .ledgers
-            .iter()
-            .filter(|kv| kv.value().expires_at > now)
-            .map(|kv| *kv.key())
-            .min();
-        Ok(min)
+    /// Get the number of ledgers currently cached.
+    pub fn cached_ledger_count(&self) -> usize {
+        self.ledgers.len()
     }
 
     /// Clean up expired cache entries. Returns the number of ledgers removed.

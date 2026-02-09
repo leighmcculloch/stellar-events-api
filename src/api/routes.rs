@@ -290,19 +290,15 @@ async fn list_events(
 /// GET /health
 #[tracing::instrument(skip_all)]
 pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, ApiError> {
-    let earliest = state.store.earliest_ledger_sequence().map_err(|e| ApiError::Internal {
-        message: format!("database error: {}", e),
-    })?;
     let latest = state.store.latest_ledger_sequence().map_err(|e| ApiError::Internal {
         message: format!("database error: {}", e),
     })?;
 
     let response = StatusResponse {
         status: "ok".to_string(),
-        earliest_ledger: earliest,
         latest_ledger: latest,
+        cached_ledgers: state.store.cached_ledger_count(),
         network_passphrase: state.config.network_passphrase.clone(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
     };
 
     Ok(PrettyJson(response))
