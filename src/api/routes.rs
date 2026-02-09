@@ -255,6 +255,7 @@ async fn list_events(
         object: "list",
         url: "/events".to_string(),
         has_more: result.has_more,
+        next: result.next,
         data: events,
     };
 

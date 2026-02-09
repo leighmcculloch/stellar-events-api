@@ -291,6 +291,7 @@ impl EventStore {
         Ok(EventQueryResult {
             data: Vec::new(),
             has_more: false,
+            next: None,
         })
     }
 
@@ -306,6 +307,7 @@ impl EventStore {
                 return Ok(EventQueryResult {
                     data: Vec::new(),
                     has_more: false,
+                    next: None,
                 })
             }
         };
@@ -326,11 +328,14 @@ impl EventStore {
         };
 
         let mut results: Vec<EventRow> = Vec::with_capacity(fetch_limit.min(events.len()));
+        let mut last_examined_id: Option<&str> = None;
 
         for event in events.iter().skip(start) {
             if results.len() >= fetch_limit {
                 break;
             }
+
+            last_examined_id = Some(&event.external_id);
 
             // Apply tx_hash filter.
             if let Some(ref tx) = params.tx {
@@ -358,6 +363,9 @@ impl EventStore {
         Ok(EventQueryResult {
             data: results,
             has_more,
+            // Always advance the cursor to the last examined event so clients
+            // don't re-visit already-scanned ranges.
+            next: last_examined_id.map(|id| id.to_owned()),
         })
     }
 
@@ -377,6 +385,7 @@ impl EventStore {
 
         let fetch_limit = params.limit as usize + 1;
         let mut results: Vec<EventRow> = Vec::with_capacity(fetch_limit);
+        let mut last_examined_id: Option<String> = None;
 
         for &seq in &ledger_seqs {
             // Skip ledgers before the cursor's ledger.
@@ -390,31 +399,22 @@ impl EventStore {
                 break;
             }
 
-            let single_params = EventQueryParams {
-                limit: (fetch_limit - results.len()) as u32,
-                after: if Some(seq) == cursor_ledger || cursor_ledger.is_none() {
-                    Some(after.to_string())
-                } else {
-                    None
-                },
-                ledger: None,
-                tx: params.tx.clone(),
-                filters: params.filters.clone(),
-            };
-
             let partition = match self.ledgers.get(&seq) {
                 Some(p) => Arc::clone(p.value()),
                 None => continue,
             };
 
             let events = &partition.events;
-            let start = match &single_params.after {
-                Some(cursor) => {
-                    match events.binary_search_by(|e| e.id.as_str().cmp(cursor.as_str())) {
-                        Ok(pos) => pos + 1,
-                        Err(pos) => pos,
-                    }
-                }
+            let cursor_for_ledger = if Some(seq) == cursor_ledger || cursor_ledger.is_none() {
+                Some(after)
+            } else {
+                None
+            };
+            let start = match cursor_for_ledger {
+                Some(cursor) => match events.binary_search_by(|e| e.id.as_str().cmp(cursor)) {
+                    Ok(pos) => pos + 1,
+                    Err(pos) => pos,
+                },
                 None => 0,
             };
 
@@ -422,6 +422,8 @@ impl EventStore {
                 if results.len() >= fetch_limit {
                     break;
                 }
+
+                last_examined_id = Some(event.external_id.clone());
 
                 if let Some(ref tx) = params.tx {
                     if event.tx_hash != *tx {
@@ -448,6 +450,7 @@ impl EventStore {
         Ok(EventQueryResult {
             data: results,
             has_more,
+            next: last_examined_id,
         })
     }
 
@@ -564,6 +567,10 @@ pub struct EventQueryParams {
 pub struct EventQueryResult {
     pub data: Vec<EventRow>,
     pub has_more: bool,
+    /// Cursor for the next page. Clients should pass this as `after` in subsequent requests.
+    /// When filters are applied, this may point beyond the last returned event to avoid
+    /// re-scanning ranges that have already been examined.
+    pub next: Option<String>,
 }
 
 /// A single event row returned from queries.
