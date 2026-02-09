@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 
 use super::error::ApiError;
-use super::types::{Event, ListResponse, StatusResponse};
+use super::types::{Event, ListResponse, PrettyJson, StatusResponse};
 use crate::db::{EventFilter, EventQueryParams};
 use crate::ledger::events::EventType;
 use crate::{sync, AppState};
@@ -172,7 +172,7 @@ async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
 async fn list_events(
     state: Arc<AppState>,
     req: ListEventsRequest,
-) -> Result<Json<ListResponse<Event>>, ApiError> {
+) -> Result<PrettyJson<ListResponse<Event>>, ApiError> {
     let start = std::time::Instant::now();
     let limit = req.limit.unwrap_or(10);
 
@@ -259,7 +259,7 @@ async fn list_events(
         data: events,
     };
 
-    Ok(Json(response))
+    Ok(PrettyJson(response))
 }
 
 /// GET /health
@@ -280,7 +280,7 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoRespo
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
 
-    Ok(Json(response))
+    Ok(PrettyJson(response))
 }
 
 /// GET /events/:id
@@ -333,7 +333,7 @@ pub async fn get_event(
     metrics::histogram!("api_request_duration_seconds", "endpoint" => "get_event")
         .record(start.elapsed().as_secs_f64());
 
-    Ok(Json(event))
+    Ok(PrettyJson(event))
 }
 
 fn parse_u32_multi(

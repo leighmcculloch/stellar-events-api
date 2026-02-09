@@ -1,8 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 
-use super::types::{ErrorBody, ErrorResponse};
+use super::types::{ErrorBody, ErrorResponse, PrettyJson};
 
 /// API error type that converts to HTTP responses.
 pub enum ApiError {
@@ -53,6 +52,6 @@ impl IntoResponse for ApiError {
             },
         };
 
-        (status, Json(body)).into_response()
+        (status, PrettyJson(body)).into_response()
     }
 }

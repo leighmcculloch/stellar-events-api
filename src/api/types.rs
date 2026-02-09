@@ -1,6 +1,25 @@
+use axum::http::{header, StatusCode};
+use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
 use crate::db::EventRow;
+
+/// JSON response wrapper that pretty-prints the output.
+pub struct PrettyJson<T>(pub T);
+
+impl<T: Serialize> IntoResponse for PrettyJson<T> {
+    fn into_response(self) -> Response {
+        match serde_json::to_vec_pretty(&self.0) {
+            Ok(bytes) => ([(header::CONTENT_TYPE, "application/json")], bytes).into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [(header::CONTENT_TYPE, "text/plain")],
+                e.to_string(),
+            )
+                .into_response(),
+        }
+    }
+}
 
 /// Paginated list response envelope.
 #[derive(Debug, Serialize)]
