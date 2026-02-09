@@ -41,16 +41,16 @@ Each filter object supports:
 |---|---|---|
 | `contract` | string | Match events from this contract ID |
 | `type` | string | Match events of this type (`contract`, `system`) |
-| `topics` | array | Positional topic matching. Each element is an XDR-JSON ScVal or `"*"` (wildcard) |
+| `topics` | array | Positional topic matching. Each element is an XDR-JSON ScVal or `null` (wildcard) |
 
-Topics are matched by position: element 0 of the filter matches against topic 0 of the event, element 1 against topic 1, and so on. The string `"*"` matches any value at that position. The event must have at least as many topics as the filter specifies. Topic values are XDR-JSON ScVals as serialized by the `stellar-xdr` crate (e.g. `{"symbol":"transfer"}`, `{"address":"GABC..."}`).
+Topics are matched by position: element 0 of the filter matches against topic 0 of the event, element 1 against topic 1, and so on. Use `null` to match any value at that position. The event must have at least as many topics as the filter specifies. Topic values are XDR-JSON ScVals as serialized by the `stellar-xdr` crate (e.g. `{"symbol":"transfer"}`, `{"address":"GABC..."}`).
 
 Example: find transfer events to a specific address on either of two contracts:
 
 ```
 GET /events?filters=[
-  {"contract":"CABC...","type":"contract","topics":[{"symbol":"transfer"},"*",{"address":"GDEF..."}]},
-  {"contract":"CXYZ...","type":"contract","topics":[{"symbol":"transfer"},"*",{"address":"GDEF..."}]}
+  {"contract":"CABC...","type":"contract","topics":[{"symbol":"transfer"},null,{"address":"GDEF..."}]},
+  {"contract":"CXYZ...","type":"contract","topics":[{"symbol":"transfer"},null,{"address":"GDEF..."}]}
 ]
 ```
 

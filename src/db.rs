@@ -91,7 +91,7 @@ impl StoredEvent {
                     return false;
                 }
                 for (i, topic_val) in topics.iter().enumerate() {
-                    if topic_val.as_str() == Some("*") {
+                    if topic_val.is_null() {
                         continue;
                     }
                     match stored.get(i) {
@@ -534,7 +534,7 @@ impl EventStore {
 }
 
 /// A structured event filter. Multiple filters are OR'd together; conditions within a
-/// single filter are AND'd. Topics support positional matching with `"*"` as a wildcard.
+/// single filter are AND'd. Topics support positional matching with `null` as a wildcard.
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct EventFilter {
     /// Filter by contract ID (Stellar strkey, e.g. "C...").
@@ -543,7 +543,7 @@ pub struct EventFilter {
     /// Filter by event type: "contract" or "system".
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub event_type: Option<String>,
-    /// Positional topic matching. Each element is an XDR-JSON ScVal or the string `"*"`
+    /// Positional topic matching. Each element is an XDR-JSON ScVal or `null`
     /// (wildcard). The filter matches if the event has at least as many topics and each
     /// non-wildcard position matches exactly.
     #[serde(default, skip_serializing_if = "Option::is_none")]

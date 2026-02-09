@@ -465,7 +465,7 @@ async fn test_filter_topic_with_wildcard() {
     let client = reqwest::Client::new();
 
     // topic[0] = transfer, topic[1] = anything, topic[2] = GDEF
-    let f = serde_json::json!([{"topics": [{"symbol": "transfer"}, "*", {"address": "GDEF"}]}]);
+    let f = serde_json::json!([{"topics": [{"symbol": "transfer"}, null, {"address": "GDEF"}]}]);
     let resp = client
         .get(format!(
             "{}/events?ledger=100&filters={}",
@@ -491,7 +491,7 @@ async fn test_filter_topic_too_few_positions() {
 
     // No event has 4 topics
     let f =
-        serde_json::json!([{"topics": [{"symbol": "transfer"}, "*", "*", {"symbol": "extra"}]}]);
+        serde_json::json!([{"topics": [{"symbol": "transfer"}, null, null, {"symbol": "extra"}]}]);
     let resp = client
         .get(format!(
             "{}/events?ledger=100&filters={}",
@@ -639,7 +639,7 @@ async fn test_filters_all_wildcards() {
     let client = reqwest::Client::new();
 
     // All wildcards: matches events with >= 3 topics
-    let f = serde_json::json!([{"topics": ["*", "*", "*"]}]);
+    let f = serde_json::json!([{"topics": [null, null, null]}]);
     let resp = client
         .get(format!(
             "{}/events?ledger=100&filters={}",
