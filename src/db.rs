@@ -311,7 +311,7 @@ impl EventStore {
         };
 
         let events = &partition.events;
-        let fetch_limit = params.limit as usize + 1;
+        let limit = params.limit as usize;
 
         // Find start position based on cursor.
         let start = match &params.after {
@@ -325,11 +325,11 @@ impl EventStore {
             None => 0,
         };
 
-        let mut results: Vec<EventRow> = Vec::with_capacity(fetch_limit.min(events.len()));
+        let mut results: Vec<EventRow> = Vec::with_capacity(limit.min(events.len()));
         let mut last_examined_id: Option<&str> = None;
 
         for event in events.iter().skip(start) {
-            if results.len() >= fetch_limit {
+            if results.len() >= limit {
                 break;
             }
 
@@ -353,14 +353,10 @@ impl EventStore {
             results.push(event.to_event_row());
         }
 
-        if results.len() > params.limit as usize {
-            results.truncate(params.limit as usize);
-        }
-
         Ok(EventQueryResult {
             data: results,
-            // Always advance the cursor to the last examined event so clients
-            // don't re-visit already-scanned ranges.
+            // Advance the cursor to the last examined event so clients
+            // don't re-visit already-scanned ranges when filters skip events.
             next: last_examined_id.map(|id| id.to_owned()),
         })
     }
@@ -379,8 +375,8 @@ impl EventStore {
         let cursor_ledger =
             crate::ledger::event_id::parse_event_id(after).map(|(seq, _, _, _, _)| seq);
 
-        let fetch_limit = params.limit as usize + 1;
-        let mut results: Vec<EventRow> = Vec::with_capacity(fetch_limit);
+        let limit = params.limit as usize;
+        let mut results: Vec<EventRow> = Vec::with_capacity(limit);
         let mut last_examined_id: Option<String> = None;
 
         for &seq in &ledger_seqs {
@@ -391,7 +387,7 @@ impl EventStore {
                 }
             }
 
-            if results.len() >= fetch_limit {
+            if results.len() >= limit {
                 break;
             }
 
@@ -415,7 +411,7 @@ impl EventStore {
             };
 
             for event in events.iter().skip(start) {
-                if results.len() >= fetch_limit {
+                if results.len() >= limit {
                     break;
                 }
 
@@ -436,10 +432,6 @@ impl EventStore {
 
                 results.push(event.to_event_row());
             }
-        }
-
-        if results.len() > params.limit as usize {
-            results.truncate(params.limit as usize);
         }
 
         Ok(EventQueryResult {
