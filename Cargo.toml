@@ -54,9 +54,6 @@ stellar-strkey = "0.0.13"
 # Hex encoding
 hex = "0.4"
 
-# Base64 encoding
-base64 = "0.22"
-
 # URL encoding
 urlencoding = "2"
 

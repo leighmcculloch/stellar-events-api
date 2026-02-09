@@ -120,6 +120,31 @@ pub async fn list_events_post(
     list_events(state, req).await
 }
 
+/// Fetch and cache a single ledger on demand, bypassing the latest-synced watermark.
+#[tracing::instrument(skip(state))]
+async fn backfill_ledger(state: &AppState, ledger_seq: u32) {
+    if state.store.find_uncached_ledgers(ledger_seq, 1).unwrap_or_default().is_empty() {
+        return;
+    }
+
+    match sync::fetch_and_extract(&state.client, &state.meta_url, &state.config, ledger_seq).await
+    {
+        Ok(events) => {
+            if let Err(e) = state.store.insert_events(events) {
+                tracing::warn!(ledger = ledger_seq, error = %e, "backfill_ledger: failed to insert events");
+                return;
+            }
+            if let Err(e) = state.store.record_ledger_cached(ledger_seq, 0) {
+                tracing::warn!(ledger = ledger_seq, error = %e, "backfill_ledger: failed to record cache");
+            }
+        }
+        Err(e) if matches!(e, crate::Error::LedgerNotFound(_)) => {}
+        Err(e) => {
+            tracing::warn!(ledger = ledger_seq, error = %e, "backfill_ledger: failed to fetch ledger");
+        }
+    }
+}
+
 /// Fetch and cache historical ledgers on demand, starting at `target_ledger`.
 #[tracing::instrument(skip(state))]
 async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
@@ -314,8 +339,9 @@ pub async fn get_event(
     let internal_id =
         crate::ledger::events::event_id(ledger_seq, event_phase, tx_index, event_index);
 
-    // Backfill the ledger on demand.
-    backfill_if_needed(&state, ledger_seq).await;
+    // Backfill the ledger on demand. Use direct fetch since the event was
+    // requested by ID — don't skip based on the latest-synced watermark.
+    backfill_ledger(&state, ledger_seq).await;
 
     let row = state
         .store

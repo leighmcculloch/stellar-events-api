@@ -1,5 +1,3 @@
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
 use stellar_xdr::curr::{
     ContractEvent, ContractEventType, LedgerCloseMeta, LedgerCloseMetaBatch, TransactionMeta,
     TransactionMetaV3, TransactionMetaV4,
@@ -125,10 +123,63 @@ const XOR_KEY: [u8; 14] = [
     0xa3, 0x7b, 0x1c, 0xf0, 0x5e, 0xd2, 0x94, 0x68, 0x0b, 0xe7, 0x3f, 0x81, 0xc6, 0x4d,
 ];
 
+/// Custom base32 alphabet: 26 lowercase + 6 visually distinct uppercase.
+const BASE32_ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyzBDGNRT";
+
+/// Encode 14 bytes as 23 base32 characters using the custom alphabet.
+fn base32_encode(data: &[u8; 14]) -> String {
+    let mut result = String::with_capacity(23);
+    let mut buf: u64 = 0;
+    let mut bits = 0u32;
+
+    for &byte in data.iter() {
+        buf = (buf << 8) | byte as u64;
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            result.push(BASE32_ALPHABET[((buf >> bits) & 0x1f) as usize] as char);
+        }
+    }
+
+    if bits > 0 {
+        result.push(BASE32_ALPHABET[((buf << (5 - bits)) & 0x1f) as usize] as char);
+    }
+
+    result
+}
+
+/// Decode 23 base32 characters back into 14 bytes.
+fn base32_decode(s: &str) -> Option<[u8; 14]> {
+    if s.len() != 23 {
+        return None;
+    }
+    let mut result = [0u8; 14];
+    let mut buf: u64 = 0;
+    let mut bits = 0u32;
+    let mut i = 0;
+
+    for ch in s.bytes() {
+        let val = BASE32_ALPHABET.iter().position(|&c| c == ch)? as u64;
+        buf = (buf << 5) | val;
+        bits += 5;
+        while bits >= 8 && i < 14 {
+            bits -= 8;
+            result[i] = ((buf >> bits) & 0xff) as u8;
+            i += 1;
+        }
+    }
+
+    if i != 14 {
+        return None;
+    }
+
+    Some(result)
+}
+
 /// Encode event ID components into an opaque external format.
 ///
 /// Packs 5 components into 14 bytes big-endian, XORs with a fixed key,
-/// then base64url encodes (no padding) with an `evt_` prefix.
+/// then base32 encodes with a custom letter-only alphabet and `evt_` prefix.
 pub fn encode_event_id(
     ledger_sequence: u32,
     phase: u8,
@@ -147,20 +198,15 @@ pub fn encode_event_id(
         buf[i] ^= XOR_KEY[i];
     }
 
-    let encoded = URL_SAFE_NO_PAD.encode(buf);
+    let encoded = base32_encode(&buf);
     format!("evt_{}", encoded)
 }
 
 /// Decode an opaque external event ID back into its components.
 pub fn decode_event_id(id: &str) -> Option<(u32, u8, u32, u8, u32)> {
     let payload = id.strip_prefix("evt_")?;
-    let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
-    if bytes.len() != 14 {
-        return None;
-    }
+    let mut buf = base32_decode(payload)?;
 
-    let mut buf = [0u8; 14];
-    buf.copy_from_slice(&bytes);
     for i in 0..14 {
         buf[i] ^= XOR_KEY[i];
     }
@@ -517,11 +563,10 @@ mod tests {
     fn test_encode_decode_roundtrip() {
         let external = encode_event_id(58000000, 1, 3, 0, 7);
         assert!(external.starts_with("evt_"));
-        // Verify it's URL-safe: only alphanumeric, '-', '_'
+        // Verify payload is letters only (custom base32 alphabet).
         let payload = external.strip_prefix("evt_").unwrap();
-        assert!(payload
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert_eq!(payload.len(), 23);
+        assert!(payload.chars().all(|c| c.is_ascii_alphabetic()));
 
         let (seq, phase, tx, sub, evt) = decode_event_id(&external).unwrap();
         assert_eq!(seq, 58000000);
