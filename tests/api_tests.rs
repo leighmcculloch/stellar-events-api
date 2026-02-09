@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use stellar_events_api::api;
 use stellar_events_api::db::EventStore;
-use stellar_events_api::ledger::events::{EventPhase, EventType, ExtractedEvent};
+use stellar_events_api::ledger::event_id::EventPhase;
+use stellar_events_api::ledger::events::{EventType, ExtractedEvent};
 use stellar_events_api::ledger::path::StoreConfig;
 use stellar_events_api::AppState;
 
@@ -199,9 +200,9 @@ async fn test_list_events_with_data() {
     let first = &body["data"][0];
     assert_eq!(first["object"], "event");
     assert!(first["id"].as_str().unwrap().starts_with("evt_"));
-    assert!(first["ledger_sequence"].is_number());
-    assert!(first["ledger_closed_at"].is_string());
-    assert!(first["tx_hash"].is_string());
+    assert!(first["ledger"].is_number());
+    assert!(first["at"].is_string());
+    assert!(first["tx"].is_string());
     assert!(first["type"].is_string());
 }
 
@@ -284,7 +285,7 @@ async fn test_default_starts_at_latest_ledger() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 5);
-    assert_eq!(data[0]["ledger_sequence"], 1000);
+    assert_eq!(data[0]["ledger"], 1000);
     assert_eq!(body["has_more"], false);
 }
 
@@ -309,7 +310,7 @@ async fn test_ledger_filter() {
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 5);
     for evt in data {
-        assert_eq!(evt["ledger_sequence"].as_u64().unwrap(), 100);
+        assert_eq!(evt["ledger"].as_u64().unwrap(), 100);
     }
     assert_eq!(body["has_more"], false);
 }
@@ -344,7 +345,7 @@ async fn test_filter_by_contract_id() {
     let client = reqwest::Client::new();
 
     let f = serde_json::json!([{
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     }]);
     let resp = client
         .get(format!(
@@ -362,7 +363,7 @@ async fn test_filter_by_contract_id() {
     assert_eq!(data.len(), 3);
     for evt in data {
         assert_eq!(
-            evt["contract_id"],
+            evt["contract"],
             "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         );
     }
@@ -410,7 +411,7 @@ async fn test_filter_by_tx_hash() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 1);
-    assert_eq!(data[0]["tx_hash"], tx_hash);
+    assert_eq!(data[0]["tx"], tx_hash);
 }
 
 #[tokio::test]
@@ -514,11 +515,11 @@ async fn test_filters_or_logic() {
     // Two filters OR'd: CA with transfer OR CB with transfer
     let f = serde_json::json!([
         {
-            "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "topics": [{"symbol": "transfer"}]
         },
         {
-            "contract_id": "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            "contract": "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
             "topics": [{"symbol": "transfer"}]
         }
     ]);
@@ -546,7 +547,7 @@ async fn test_filters_and_logic_within() {
 
     // Single filter: contract CA AND type contract AND topic[0] = mint
     let f = serde_json::json!([{
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "type": "contract",
         "topics": [{"symbol": "mint"}]
     }]);
@@ -564,7 +565,7 @@ async fn test_filters_and_logic_within() {
     let data = body["data"].as_array().unwrap();
     // Only event 3 matches
     assert_eq!(data.len(), 1);
-    assert_eq!(data[0]["ledger_sequence"], 100);
+    assert_eq!(data[0]["ledger"], 100);
 }
 
 #[tokio::test]
@@ -809,7 +810,7 @@ async fn test_post_with_filters() {
         .post(format!("{}/events", base_url))
         .json(&serde_json::json!({
             "ledger": 100,
-            "filters": [{"contract_id": "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}]
+            "filters": [{"contract": "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}]
         }))
         .send()
         .await
@@ -821,7 +822,7 @@ async fn test_post_with_filters() {
     assert!(data.len() > 0);
     for event in data {
         assert_eq!(
-            event["contract_id"],
+            event["contract"],
             "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
         );
     }
@@ -896,9 +897,9 @@ async fn test_event_fields_complete() {
     assert!(event["id"].is_string());
     assert_eq!(event["object"], "event");
     assert!(event["type"].is_string());
-    assert!(event["ledger_sequence"].is_number());
-    assert!(event["ledger_closed_at"].is_string());
-    assert!(event["tx_hash"].is_string());
+    assert!(event["ledger"].is_number());
+    assert!(event["at"].is_string());
+    assert!(event["tx"].is_string());
     assert!(!event["topics"].is_null());
     assert!(!event["data"].is_null());
 }

@@ -211,9 +211,9 @@ async fn list_events(
     // Validate and convert cursor from external to internal format if provided.
     let after = if let Some(ref cursor) = req.after {
         // Try decoding as an external (opaque) ID first, fall back to internal format.
-        if let Some(internal) = crate::ledger::events::to_internal_id(cursor) {
+        if let Some(internal) = crate::ledger::event_id::to_internal_id(cursor) {
             Some(internal)
-        } else if crate::ledger::events::parse_event_id(cursor).is_some() {
+        } else if crate::ledger::event_id::parse_event_id(cursor).is_some() {
             Some(cursor.clone())
         } else {
             return Err(ApiError::BadRequest {
@@ -247,7 +247,7 @@ async fn list_events(
     let target_ledger = if req.ledger.is_some() {
         req.ledger
     } else if let Some(ref cursor) = after {
-        crate::ledger::events::parse_event_id(cursor).map(|(seq, _, _, _, _)| seq)
+        crate::ledger::event_id::parse_event_id(cursor).map(|(seq, _, _, _, _)| seq)
     } else {
         None
     };
@@ -318,16 +318,16 @@ pub async fn get_event(
 
     // Decode the external ID to get components.
     let (ledger_seq, phase, tx_index, sub, event_index) =
-        crate::ledger::events::decode_event_id(&id).ok_or_else(|| ApiError::NotFound {
+        crate::ledger::event_id::decode_event_id(&id).ok_or_else(|| ApiError::NotFound {
             message: format!("event not found: {}", id),
         })?;
 
     // Reconstruct EventPhase; return 404 for invalid (phase, sub) combinations.
     let event_phase = match (phase, sub) {
-        (0, 0) => crate::ledger::events::EventPhase::BeforeAllTxs,
-        (1, 0) => crate::ledger::events::EventPhase::Operation,
-        (1, 1) => crate::ledger::events::EventPhase::AfterTx,
-        (2, 0) => crate::ledger::events::EventPhase::AfterAllTxs,
+        (0, 0) => crate::ledger::event_id::EventPhase::BeforeAllTxs,
+        (1, 0) => crate::ledger::event_id::EventPhase::Operation,
+        (1, 1) => crate::ledger::event_id::EventPhase::AfterTx,
+        (2, 0) => crate::ledger::event_id::EventPhase::AfterAllTxs,
         _ => {
             return Err(ApiError::NotFound {
                 message: format!("event not found: {}", id),
@@ -337,7 +337,7 @@ pub async fn get_event(
 
     // Reconstruct internal ID for store lookup.
     let internal_id =
-        crate::ledger::events::event_id(ledger_seq, event_phase, tx_index, event_index);
+        crate::ledger::event_id::event_id(ledger_seq, event_phase, tx_index, event_index);
 
     // Backfill the ledger on demand. Use direct fetch since the event was
     // requested by ID — don't skip based on the latest-synced watermark.

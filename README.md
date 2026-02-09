@@ -39,7 +39,7 @@ Each filter object supports:
 
 | Field | Type | Description |
 |---|---|---|
-| `contract_id` | string | Match events from this contract ID |
+| `contract` | string | Match events from this contract ID |
 | `type` | string | Match events of this type (`contract`, `system`) |
 | `topics` | array | Positional topic matching. Each element is an XDR-JSON ScVal or `"*"` (wildcard) |
 
@@ -49,8 +49,8 @@ Example: find transfer events to a specific address on either of two contracts:
 
 ```
 GET /events?filters=[
-  {"contract_id":"CABC...","type":"contract","topics":[{"symbol":"transfer"},"*",{"address":"GDEF..."}]},
-  {"contract_id":"CXYZ...","type":"contract","topics":[{"symbol":"transfer"},"*",{"address":"GDEF..."}]}
+  {"contract":"CABC...","type":"contract","topics":[{"symbol":"transfer"},"*",{"address":"GDEF..."}]},
+  {"contract":"CXYZ...","type":"contract","topics":[{"symbol":"transfer"},"*",{"address":"GDEF..."}]}
 ]
 ```
 
@@ -73,13 +73,13 @@ curl 'http://localhost:3000/events?ledger=58000000'
 All events for the USDC contract:
 
 ```bash
-curl 'http://localhost:3000/events?ledger=58000000&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"}]'
+curl 'http://localhost:3000/events?ledger=58000000&filters=[{"contract":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"}]'
 ```
 
 Transfer events for the USDC contract:
 
 ```bash
-curl 'http://localhost:3000/events?ledger=58000000&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75","topics":[{"symbol":"transfer"}]}]'
+curl 'http://localhost:3000/events?ledger=58000000&filters=[{"contract":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75","topics":[{"symbol":"transfer"}]}]'
 ```
 
 Same query using POST with a JSON body:
@@ -91,7 +91,7 @@ curl -X POST 'http://localhost:3000/events' \
     "ledger": 58000000,
     "filters": [
       {
-        "contract_id": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+        "contract": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
         "topics": [{"symbol": "transfer"}]
       }
     ]
@@ -109,11 +109,11 @@ curl -X POST 'http://localhost:3000/events' \
     {
       "object": "event",
       "id": "evt_0058000000_1_0000_0_0000",
-      "ledger_sequence": 58000000,
-      "ledger_closed_at": "2024-01-15T12:00:00+00:00",
-      "tx_hash": "abc123...",
+      "ledger": 58000000,
+      "at": "2024-01-15T12:00:00+00:00",
+      "tx": "abc123...",
       "type": "contract",
-      "contract_id": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+      "contract": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
       "topics": [{"symbol": "transfer"}],
       "data": {"i128": {"hi": 0, "lo": 1000000}}
     }

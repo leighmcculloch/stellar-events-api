@@ -231,7 +231,7 @@ async fn test_cold_fetch_latency() {
         let first = &data[0];
         assert_eq!(first["object"], "event");
         assert!(first["id"].as_str().unwrap().starts_with("evt_"));
-        assert_eq!(first["ledger_sequence"], 1000);
+        assert_eq!(first["ledger"], 1000);
         assert_eq!(first["type"], "contract");
 
         durations.push(duration);

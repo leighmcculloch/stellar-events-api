@@ -85,7 +85,7 @@ section{margin-bottom:40px}
 <table>
   <tr><th>Field</th><th>Type</th><th>Description</th></tr>
   <tr><td><code>type</code></td><td>string</td><td><code>"contract"</code> or <code>"system"</code></td></tr>
-  <tr><td><code>contract_id</code></td><td>string</td><td>Stellar contract strkey (C…)</td></tr>
+  <tr><td><code>contract</code></td><td>string</td><td>Stellar contract strkey (C…)</td></tr>
   <tr><td><code>topics</code></td><td>array</td><td>Positional topic matching. Each element is an XDR-JSON ScVal or <code>"*"</code> (wildcard)</td></tr>
 </table>
 
@@ -98,11 +98,11 @@ section{margin-bottom:40px}
     {
       "object": "event",
       "id": "0000000000-0000000001",
-      "ledger_sequence": 100,
-      "ledger_closed_at": "2024-01-01T00:00:00+00:00",
-      "tx_hash": "abc123...",
+      "ledger": 100,
+      "at": "2024-01-01T00:00:00+00:00",
+      "tx": "abc123...",
       "type": "contract",
-      "contract_id": "CABC...",
+      "contract": "CABC...",
       "topics": [...],
       "data": {...}
     }
@@ -229,13 +229,13 @@ section{margin-bottom:40px}
     <button class="toggle-btn" data-method="POST" data-panel="bycontract">POST</button>
   </div>
   <div class="request-get" id="req-get-bycontract">
-    <textarea class="request-area" rows="1">/events?limit=5&filters=[{"contract_id":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI"}]</textarea>
+    <textarea class="request-area" rows="1">/events?limit=5&filters=[{"contract":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI"}]</textarea>
   </div>
   <div class="request-post" id="req-post-bycontract" style="display:none">
     <textarea class="request-area" rows="6">{
   "limit": 5,
   "filters": [
-    { "contract_id": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI" }
+    { "contract": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI" }
   ]
 }</textarea>
   </div>

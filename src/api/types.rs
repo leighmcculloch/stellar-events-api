@@ -38,11 +38,15 @@ pub struct Event {
     pub object: &'static str,
     pub id: String,
     pub url: String,
+    #[serde(rename = "ledger")]
     pub ledger_sequence: u32,
+    #[serde(rename = "at")]
     pub ledger_closed_at: String,
+    #[serde(rename = "tx")]
     pub tx_hash: String,
     #[serde(rename = "type")]
     pub event_type: String,
+    #[serde(rename = "contract")]
     pub contract_id: Option<String>,
     pub topics: serde_json::Value,
     pub data: serde_json::Value,

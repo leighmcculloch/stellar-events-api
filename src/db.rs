@@ -138,14 +138,14 @@ impl EventStore {
             let mut stored: Vec<StoredEvent> = Vec::with_capacity(ledger_events.len());
 
             for event in ledger_events {
-                let id = crate::ledger::events::event_id(
+                let id = crate::ledger::event_id::event_id(
                     event.ledger_sequence,
                     event.phase,
                     event.tx_index,
                     event.event_index,
                 );
                 let (phase, sub) = event.phase.as_phase_sub();
-                let external_id = crate::ledger::events::encode_event_id(
+                let external_id = crate::ledger::event_id::encode_event_id(
                     event.ledger_sequence,
                     phase,
                     event.tx_index,
@@ -381,7 +381,7 @@ impl EventStore {
 
         // Parse cursor to determine starting ledger.
         let cursor_ledger =
-            crate::ledger::events::parse_event_id(after).map(|(seq, _, _, _, _)| seq);
+            crate::ledger::event_id::parse_event_id(after).map(|(seq, _, _, _, _)| seq);
 
         let fetch_limit = params.limit as usize + 1;
         let mut results: Vec<EventRow> = Vec::with_capacity(fetch_limit);
@@ -538,7 +538,7 @@ impl EventStore {
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct EventFilter {
     /// Filter by contract ID (Stellar strkey, e.g. "C...").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "contract", default, skip_serializing_if = "Option::is_none")]
     pub contract_id: Option<String>,
     /// Filter by event type: "contract" or "system".
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
