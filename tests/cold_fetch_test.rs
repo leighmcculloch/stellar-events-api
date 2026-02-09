@@ -225,8 +225,6 @@ async fn test_cold_fetch_latency() {
         let body: serde_json::Value = resp.json().await.unwrap();
         let data = body["data"].as_array().unwrap();
         assert_eq!(data.len(), 50, "expected 50 events (10 tx × 5 events)");
-        assert_eq!(body["has_more"], false);
-
         // Verify structure
         let first = &data[0];
         assert_eq!(first["object"], "event");

@@ -174,7 +174,6 @@ async fn test_list_events_empty() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["object"], "list");
     assert_eq!(body["url"], "/events");
-    assert_eq!(body["has_more"], false);
     assert!(body["data"].as_array().unwrap().is_empty());
 }
 
@@ -194,7 +193,6 @@ async fn test_list_events_with_data() {
 
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["object"], "list");
-    assert_eq!(body["has_more"], true);
     assert_eq!(body["data"].as_array().unwrap().len(), 3);
 
     let first = &body["data"][0];
@@ -219,7 +217,6 @@ async fn test_pagination_forward() {
         .await
         .unwrap();
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["has_more"], true);
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 2);
     let last_id = data[1]["id"].as_str().unwrap().to_string();
@@ -234,7 +231,6 @@ async fn test_pagination_forward() {
         .await
         .unwrap();
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["has_more"], true);
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 2);
     assert_ne!(data[0]["id"].as_str().unwrap(), last_id.as_str());
@@ -250,7 +246,6 @@ async fn test_pagination_forward() {
         .await
         .unwrap();
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["has_more"], false);
     assert_eq!(body["data"].as_array().unwrap().len(), 1);
 }
 
@@ -267,7 +262,6 @@ async fn test_default_limit() {
         .unwrap();
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["data"].as_array().unwrap().len(), 10);
-    assert_eq!(body["has_more"], true);
 }
 
 #[tokio::test]
@@ -286,7 +280,6 @@ async fn test_default_starts_at_latest_ledger() {
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 5);
     assert_eq!(data[0]["ledger"], 1000);
-    assert_eq!(body["has_more"], false);
 }
 
 // --- Ledger sequence filter ---
@@ -312,7 +305,6 @@ async fn test_ledger_filter() {
     for evt in data {
         assert_eq!(evt["ledger"].as_u64().unwrap(), 100);
     }
-    assert_eq!(body["has_more"], false);
 }
 
 #[tokio::test]
@@ -333,7 +325,6 @@ async fn test_ledger_filter_no_match() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 0);
-    assert_eq!(body["has_more"], false);
 }
 
 // --- Structured filters ---
@@ -590,7 +581,6 @@ async fn test_filters_combined_with_pagination() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 1);
-    assert_eq!(body["has_more"], true);
 
     // Second page
     let last_id = data[0]["id"].as_str().unwrap();
@@ -605,7 +595,6 @@ async fn test_filters_combined_with_pagination() {
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["data"].as_array().unwrap().len(), 1);
-    assert_eq!(body["has_more"], true);
 }
 
 #[tokio::test]
@@ -796,7 +785,6 @@ async fn test_post_list_events() {
 
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["object"], "list");
-    assert_eq!(body["has_more"], true);
     assert_eq!(body["data"].as_array().unwrap().len(), 2);
 }
 
@@ -875,9 +863,8 @@ async fn test_list_envelope_consistency() {
 
     assert!(body.get("object").is_some());
     assert!(body.get("url").is_some());
-    assert!(body.get("has_more").is_some());
     assert!(body.get("data").is_some());
-    assert_eq!(body.as_object().unwrap().len(), 4);
+    assert_eq!(body.as_object().unwrap().len(), 3);
 }
 
 #[tokio::test]

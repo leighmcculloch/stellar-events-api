@@ -25,7 +25,6 @@ impl<T: Serialize> IntoResponse for PrettyJson<T> {
 #[derive(Debug, Serialize)]
 pub struct ListResponse<T: Serialize> {
     pub url: String,
-    pub has_more: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<String>,
     pub object: &'static str,

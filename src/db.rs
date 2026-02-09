@@ -290,7 +290,6 @@ impl EventStore {
         // No ledger, no cursor — return empty.
         Ok(EventQueryResult {
             data: Vec::new(),
-            has_more: false,
             next: None,
         })
     }
@@ -306,7 +305,6 @@ impl EventStore {
             None => {
                 return Ok(EventQueryResult {
                     data: Vec::new(),
-                    has_more: false,
                     next: None,
                 })
             }
@@ -355,14 +353,12 @@ impl EventStore {
             results.push(event.to_event_row());
         }
 
-        let has_more = results.len() > params.limit as usize;
-        if has_more {
+        if results.len() > params.limit as usize {
             results.truncate(params.limit as usize);
         }
 
         Ok(EventQueryResult {
             data: results,
-            has_more,
             // Always advance the cursor to the last examined event so clients
             // don't re-visit already-scanned ranges.
             next: last_examined_id.map(|id| id.to_owned()),
@@ -442,14 +438,12 @@ impl EventStore {
             }
         }
 
-        let has_more = results.len() > params.limit as usize;
-        if has_more {
+        if results.len() > params.limit as usize {
             results.truncate(params.limit as usize);
         }
 
         Ok(EventQueryResult {
             data: results,
-            has_more,
             next: last_examined_id,
         })
     }
@@ -559,7 +553,6 @@ pub struct EventQueryParams {
 #[derive(Debug)]
 pub struct EventQueryResult {
     pub data: Vec<EventRow>,
-    pub has_more: bool,
     /// Cursor for the next page. Clients should pass this as `after` in subsequent requests.
     /// When filters are applied, this may point beyond the last returned event to avoid
     /// re-scanning ranges that have already been examined.

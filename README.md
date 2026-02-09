@@ -104,7 +104,6 @@ curl -X POST 'http://localhost:3000/events' \
 {
   "object": "list",
   "url": "/events",
-  "has_more": true,
   "data": [
     {
       "object": "event",
@@ -121,9 +120,9 @@ curl -X POST 'http://localhost:3000/events' \
 }
 ```
 
-**Pagination:** Use the `id` of the last item in `data` as the `after` value for the next page. Iterate until `has_more` is `false`.
+**Pagination:** Use the `next` URL or the `id` of the last item in `data` as the `after` value for the next page.
 
-**Streaming new events:** Paginate forward until `has_more` is `false`, then keep polling with the last seen `id` as `after`. New events will appear as the server syncs new ledgers.
+**Streaming new events:** Keep polling with the last seen `id` as `after`. New events will appear as the server syncs new ledgers.
 
 **Error responses** use a structured format:
 

@@ -267,7 +267,7 @@ async fn list_events(
         message: format!("database error: {}", e),
     })?;
 
-    tracing::debug!(events = result.data.len(), has_more = result.has_more, "query complete");
+    tracing::debug!(events = result.data.len(), "query complete");
 
     let events: Vec<Event> = result.data.into_iter().map(Event::from).collect();
 
@@ -279,7 +279,6 @@ async fn list_events(
     let response = ListResponse {
         object: "list",
         url: "/events".to_string(),
-        has_more: result.has_more,
         next: result.next,
         data: events,
     };
