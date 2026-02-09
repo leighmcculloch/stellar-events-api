@@ -18,6 +18,7 @@ pub struct ListResponse<T: Serialize> {
 pub struct Event {
     pub object: &'static str,
     pub id: String,
+    pub url: String,
     pub ledger_sequence: u32,
     pub ledger_closed_at: String,
     pub tx_hash: String,
@@ -30,8 +31,10 @@ pub struct Event {
 
 impl From<EventRow> for Event {
     fn from(row: EventRow) -> Self {
+        let url = format!("/events/{}", row.id);
         Event {
             id: row.id,
+            url,
             object: "event",
             event_type: row.event_type.to_string(),
             ledger_sequence: row.ledger_sequence,
