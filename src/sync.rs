@@ -175,8 +175,7 @@ pub async fn run_sync(
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
             Some(SleepReason::Error) => {
-                let backoff =
-                    Duration::from_secs((2u64.pow(consecutive_failures.min(6))).min(60));
+                let backoff = Duration::from_secs((2u64.pow(consecutive_failures.min(6))).min(60));
                 tokio::time::sleep(backoff).await;
             }
             None => {
@@ -202,7 +201,11 @@ pub async fn fetch_and_extract(
     let raw = fetch_ledger_raw(client, meta_url, store_config, ledger_sequence).await?;
     let batch = parse_ledger_batch(&raw)?;
     let events = extract_events(&batch);
-    tracing::trace!(ledger = ledger_sequence, events = events.len(), "extracted events");
+    tracing::trace!(
+        ledger = ledger_sequence,
+        events = events.len(),
+        "extracted events"
+    );
     Ok(events)
 }
 

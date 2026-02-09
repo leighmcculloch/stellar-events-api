@@ -21,7 +21,6 @@ pub async fn home() -> axum::response::Html<&'static str> {
 
 const HOME_HTML: &str = include_str!("home.html");
 
-
 /// Parse a raw query string into a multi-map (key -> Vec<value>).
 /// Supports both `key=a&key=b` and `key[]=a&key[]=b` styles.
 fn parse_multi_params(query: &str) -> HashMap<String, Vec<String>> {
@@ -77,26 +76,18 @@ pub async fn list_events_get(
         None => None,
     };
 
-    let after = multi
-        .get("after")
-        .and_then(|v| v.first())
-        .cloned();
+    let after = multi.get("after").and_then(|v| v.first()).cloned();
 
     let ledger = parse_u32_multi(&multi, "ledger")?;
 
-    let tx = multi
-        .get("tx")
-        .and_then(|v| v.first())
-        .cloned();
+    let tx = multi.get("tx").and_then(|v| v.first()).cloned();
 
     // Structured filters (JSON-encoded array)
     let filters: Vec<EventFilter> = match multi.get("filters").and_then(|v| v.first()) {
-        Some(json_str) => {
-            serde_json::from_str(json_str).map_err(|e| ApiError::BadRequest {
-                message: format!("invalid filters JSON: {}", e),
-                param: Some("filters".to_string()),
-            })?
-        }
+        Some(json_str) => serde_json::from_str(json_str).map_err(|e| ApiError::BadRequest {
+            message: format!("invalid filters JSON: {}", e),
+            param: Some("filters".to_string()),
+        })?,
         None => Vec::new(),
     };
 
@@ -123,12 +114,16 @@ pub async fn list_events_post(
 /// Fetch and cache a single ledger on demand, bypassing the latest-synced watermark.
 #[tracing::instrument(skip(state))]
 async fn backfill_ledger(state: &AppState, ledger_seq: u32) {
-    if state.store.find_uncached_ledgers(ledger_seq, 1).unwrap_or_default().is_empty() {
+    if state
+        .store
+        .find_uncached_ledgers(ledger_seq, 1)
+        .unwrap_or_default()
+        .is_empty()
+    {
         return;
     }
 
-    match sync::fetch_and_extract(&state.client, &state.meta_url, &state.config, ledger_seq).await
-    {
+    match sync::fetch_and_extract(&state.client, &state.meta_url, &state.config, ledger_seq).await {
         Ok(events) => {
             if let Err(e) = state.store.insert_events(events) {
                 tracing::warn!(ledger = ledger_seq, error = %e, "backfill_ledger: failed to insert events");
@@ -150,12 +145,20 @@ async fn backfill_ledger(state: &AppState, ledger_seq: u32) {
 async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
     // Cap the range at the latest synced ledger — don't try to fetch future ledgers
     // since the sync task will handle those.
-    let latest = state.store.latest_ledger_sequence().ok().flatten().unwrap_or(0);
+    let latest = state
+        .store
+        .latest_ledger_sequence()
+        .ok()
+        .flatten()
+        .unwrap_or(0);
     if target_ledger > latest {
         return;
     }
     let range = BACKFILL_BATCH_SIZE.min(latest.saturating_sub(target_ledger) + 1);
-    let uncached = state.store.find_uncached_ledgers(target_ledger, range).unwrap_or_default();
+    let uncached = state
+        .store
+        .find_uncached_ledgers(target_ledger, range)
+        .unwrap_or_default();
 
     if uncached.is_empty() {
         return;
@@ -263,9 +266,12 @@ async fn list_events(
         filters: req.filters,
     };
 
-    let result = state.store.query_events(&params).map_err(|e| ApiError::Internal {
-        message: format!("database error: {}", e),
-    })?;
+    let result = state
+        .store
+        .query_events(&params)
+        .map_err(|e| ApiError::Internal {
+            message: format!("database error: {}", e),
+        })?;
 
     tracing::debug!(events = result.data.len(), "query complete");
 
@@ -289,9 +295,12 @@ async fn list_events(
 /// GET /health
 #[tracing::instrument(skip_all)]
 pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, ApiError> {
-    let latest = state.store.latest_ledger_sequence().map_err(|e| ApiError::Internal {
-        message: format!("database error: {}", e),
-    })?;
+    let latest = state
+        .store
+        .latest_ledger_sequence()
+        .map_err(|e| ApiError::Internal {
+            message: format!("database error: {}", e),
+        })?;
 
     let response = StatusResponse {
         status: "ok".to_string(),

@@ -12,7 +12,9 @@ use stellar_events_api::AppState;
 async fn start_test_server(events: Vec<ExtractedEvent>) -> String {
     let store = EventStore::new(24 * 60 * 60);
     if !events.is_empty() {
-        store.insert_events(events).expect("failed to insert events");
+        store
+            .insert_events(events)
+            .expect("failed to insert events");
     }
 
     let state = Arc::new(AppState {
@@ -223,10 +225,7 @@ async fn test_pagination_forward() {
 
     // Second page
     let resp = client
-        .get(format!(
-            "{}/events?limit=2&after={}",
-            base_url, last_id
-        ))
+        .get(format!("{}/events?limit=2&after={}", base_url, last_id))
         .send()
         .await
         .unwrap();
@@ -238,10 +237,7 @@ async fn test_pagination_forward() {
     // Third page (last)
     let last_id = data[1]["id"].as_str().unwrap().to_string();
     let resp = client
-        .get(format!(
-            "{}/events?limit=2&after={}",
-            base_url, last_id
-        ))
+        .get(format!("{}/events?limit=2&after={}", base_url, last_id))
         .send()
         .await
         .unwrap();
@@ -292,10 +288,7 @@ async fn test_ledger_filter() {
 
     // ledger=100 returns all 5 events (all on ledger 100)
     let resp = client
-        .get(format!(
-            "{}/events?ledger=100",
-            base_url
-        ))
+        .get(format!("{}/events?ledger=100", base_url))
         .send()
         .await
         .unwrap();
@@ -315,10 +308,7 @@ async fn test_ledger_filter_no_match() {
 
     // ledger=999 returns no events (no data on that ledger)
     let resp = client
-        .get(format!(
-            "{}/events?ledger=999",
-            base_url
-        ))
+        .get(format!("{}/events?ledger=999", base_url))
         .send()
         .await
         .unwrap();
@@ -391,10 +381,7 @@ async fn test_filter_by_tx_hash() {
 
     let tx_hash = "b".repeat(64);
     let resp = client
-        .get(format!(
-            "{}/events?ledger=100&tx={}",
-            base_url, tx_hash
-        ))
+        .get(format!("{}/events?ledger=100&tx={}", base_url, tx_hash))
         .send()
         .await
         .unwrap();
@@ -411,11 +398,7 @@ async fn test_tx_without_ledger_returns_error() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!(
-            "{}/events?tx={}",
-            base_url,
-            "a".repeat(64)
-        ))
+        .get(format!("{}/events?tx={}", base_url, "a".repeat(64)))
         .send()
         .await
         .unwrap();
@@ -695,10 +678,7 @@ async fn test_invalid_cursor() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!(
-            "{}/events?after=invalid_cursor",
-            base_url
-        ))
+        .get(format!("{}/events?after=invalid_cursor", base_url))
         .send()
         .await
         .unwrap();
@@ -734,11 +714,7 @@ async fn test_filters_invalid_type() {
 
     let f = serde_json::json!([{"type": "bogus"}]);
     let resp = client
-        .get(format!(
-            "{}/events?filters={}",
-            base_url,
-            filters_param(&f)
-        ))
+        .get(format!("{}/events?filters={}", base_url, filters_param(&f)))
         .send()
         .await
         .unwrap();

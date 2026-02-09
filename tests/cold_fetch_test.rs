@@ -39,11 +39,7 @@ fn build_contract_event(contract_byte: u8, event_idx: u32) -> ContractEvent {
 }
 
 /// Build a zstd-compressed XDR LedgerCloseMetaBatch.
-fn build_test_ledger_compressed(
-    ledger_seq: u32,
-    num_txs: usize,
-    events_per_tx: usize,
-) -> Vec<u8> {
+fn build_test_ledger_compressed(ledger_seq: u32, num_txs: usize, events_per_tx: usize) -> Vec<u8> {
     let mut tx_metas = Vec::new();
 
     for tx_idx in 0..num_txs {
@@ -101,12 +97,7 @@ fn build_test_ledger_compressed(
         base_fee: 100,
         base_reserve: 5000000,
         max_tx_set_size: 100,
-        skip_list: [
-            Hash([0; 32]),
-            Hash([0; 32]),
-            Hash([0; 32]),
-            Hash([0; 32]),
-        ],
+        skip_list: [Hash([0; 32]), Hash([0; 32]), Hash([0; 32]), Hash([0; 32])],
         ext: LedgerHeaderExt::V0,
     };
 
@@ -148,9 +139,7 @@ async fn start_mock_s3(compressed_data: Vec<u8>) -> String {
         async move { d }
     });
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let url = format!("http://{}", addr);
 
@@ -178,9 +167,7 @@ async fn start_cold_server(mock_url: &str, seed_latest: u32) -> String {
 
     let app = api::router(state, None);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let base_url = format!("http://{}", addr);
 
@@ -333,7 +320,10 @@ async fn test_cold_fetch_breakdown() {
         + p50_us(&mut t_json);
 
     eprintln!();
-    eprintln!("=== Cold Fetch Breakdown (p50, {} iterations) ===", iterations);
+    eprintln!(
+        "=== Cold Fetch Breakdown (p50, {} iterations) ===",
+        iterations
+    );
     eprintln!(
         "  fetch+decompress: {:>6}µs ({:.0}%)",
         p50_us(&mut t_fetch),
