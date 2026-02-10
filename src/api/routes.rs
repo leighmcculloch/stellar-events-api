@@ -7,7 +7,7 @@ use axum::Json;
 
 use super::error::ApiError;
 use super::types::{Event, ListResponse, PrettyJson, StatusResponse};
-use crate::db::{EventFilter, EventQueryParams};
+use crate::db::{EventFilter, EventQueryParams, Order};
 use crate::ledger::events::EventType;
 use crate::{sync, AppState};
 
@@ -52,6 +52,10 @@ pub struct ListEventsRequest {
     #[serde(default)]
     after: Option<String>,
     #[serde(default)]
+    before: Option<String>,
+    #[serde(default)]
+    order: Option<String>,
+    #[serde(default)]
     ledger: Option<u32>,
     #[serde(default)]
     tx: Option<String>,
@@ -77,6 +81,8 @@ pub async fn list_events_get(
     };
 
     let after = multi.get("after").and_then(|v| v.first()).cloned();
+    let before = multi.get("before").and_then(|v| v.first()).cloned();
+    let order = multi.get("order").and_then(|v| v.first()).cloned();
 
     let ledger = parse_u32_multi(&multi, "ledger")?;
 
@@ -94,6 +100,8 @@ pub async fn list_events_get(
     let req = ListEventsRequest {
         limit,
         after,
+        before,
+        order,
         ledger,
         tx,
         filters,
@@ -211,6 +219,40 @@ async fn list_events(
         });
     }
 
+    // Validate order parameter.
+    let order = match req.order.as_deref() {
+        None | Some("asc") => Order::Asc,
+        Some("desc") => Order::Desc,
+        Some(_) => {
+            return Err(ApiError::BadRequest {
+                message: "order must be \"asc\" or \"desc\"".to_string(),
+                param: Some("order".to_string()),
+            });
+        }
+    };
+
+    // Validate mutual exclusivity of after and before.
+    if req.after.is_some() && req.before.is_some() {
+        return Err(ApiError::BadRequest {
+            message: "after and before cannot both be provided".to_string(),
+            param: Some("before".to_string()),
+        });
+    }
+
+    // Validate cursor/order consistency.
+    if req.before.is_some() && order == Order::Asc {
+        return Err(ApiError::BadRequest {
+            message: "before requires order=desc".to_string(),
+            param: Some("before".to_string()),
+        });
+    }
+    if req.after.is_some() && order == Order::Desc {
+        return Err(ApiError::BadRequest {
+            message: "after requires order=asc".to_string(),
+            param: Some("after".to_string()),
+        });
+    }
+
     // Validate and convert cursor from external to internal format if provided.
     let after = if let Some(ref cursor) = req.after {
         // Try decoding as an external (opaque) ID first, fall back to internal format.
@@ -222,6 +264,21 @@ async fn list_events(
             return Err(ApiError::BadRequest {
                 message: format!("invalid cursor: {}", cursor),
                 param: Some("after".to_string()),
+            });
+        }
+    } else {
+        None
+    };
+
+    let before = if let Some(ref cursor) = req.before {
+        if let Some(internal) = crate::ledger::event_id::to_internal_id(cursor) {
+            Some(internal)
+        } else if crate::ledger::event_id::parse_event_id(cursor).is_some() {
+            Some(cursor.clone())
+        } else {
+            return Err(ApiError::BadRequest {
+                message: format!("invalid cursor: {}", cursor),
+                param: Some("before".to_string()),
             });
         }
     } else {
@@ -247,9 +304,13 @@ async fn list_events(
     }
 
     // Determine target ledger for on-demand backfill
+    let cursor_ref = match order {
+        Order::Asc => after.as_ref(),
+        Order::Desc => before.as_ref(),
+    };
     let target_ledger = if req.ledger.is_some() {
         req.ledger
-    } else if let Some(ref cursor) = after {
+    } else if let Some(cursor) = cursor_ref {
         crate::ledger::event_id::parse_event_id(cursor).map(|(seq, _, _, _, _)| seq)
     } else {
         None
@@ -261,6 +322,8 @@ async fn list_events(
     let params = EventQueryParams {
         limit,
         after,
+        before,
+        order,
         ledger: req.ledger,
         tx: req.tx,
         filters: req.filters,

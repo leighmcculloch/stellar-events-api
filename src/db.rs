@@ -262,8 +262,13 @@ impl EventStore {
         &self,
         params: &EventQueryParams,
     ) -> Result<EventQueryResult, crate::Error> {
+        let cursor = match params.order {
+            Order::Asc => params.after.as_ref(),
+            Order::Desc => params.before.as_ref(),
+        };
+
         // Determine the pinned ledger.
-        let pinned_ledger = match (params.after.as_ref(), params.ledger) {
+        let pinned_ledger = match (cursor, params.ledger) {
             (None, None) => {
                 // Auto-select the latest ledger.
                 let latest = self.latest_ledger.load(Ordering::Relaxed);
@@ -281,10 +286,12 @@ impl EventStore {
             return self.query_single_ledger(seq, params);
         }
 
-        // Cross-ledger query (after cursor provided, no ledger pin).
-        // Parse cursor to find starting ledger, then scan forward.
-        if let Some(ref after) = params.after {
-            return self.query_cross_ledger(after, params);
+        // Cross-ledger query (cursor provided, no ledger pin).
+        if let Some(cursor) = cursor {
+            return match params.order {
+                Order::Asc => self.query_cross_ledger(cursor, params),
+                Order::Desc => self.query_cross_ledger_desc(cursor, params),
+            };
         }
 
         // No ledger, no cursor — return empty.
@@ -313,52 +320,84 @@ impl EventStore {
         let events = &partition.events;
         let limit = params.limit as usize;
 
-        // Find start position based on cursor.
-        let start = match &params.after {
-            Some(after) => {
-                // Binary search for the first event with id > after.
-                match events.binary_search_by(|e| e.id.as_str().cmp(after.as_str())) {
-                    Ok(pos) => pos + 1, // Found exact match, start after it.
-                    Err(pos) => pos,    // Not found, insertion point is the start.
+        match params.order {
+            Order::Asc => {
+                // Find start position based on cursor.
+                let start = match &params.after {
+                    Some(after) => {
+                        match events.binary_search_by(|e| e.id.as_str().cmp(after.as_str())) {
+                            Ok(pos) => pos + 1,
+                            Err(pos) => pos,
+                        }
+                    }
+                    None => 0,
+                };
+
+                let mut results: Vec<EventRow> = Vec::with_capacity(limit.min(events.len()));
+                let mut last_examined_id: Option<&str> = None;
+
+                for event in events.iter().skip(start) {
+                    if results.len() >= limit {
+                        break;
+                    }
+                    last_examined_id = Some(&event.external_id);
+                    if let Some(ref tx) = params.tx {
+                        if event.tx_hash != *tx {
+                            continue;
+                        }
+                    }
+                    if !params.filters.is_empty()
+                        && !params.filters.iter().any(|f| event.matches_filter(f))
+                    {
+                        continue;
+                    }
+                    results.push(event.to_event_row());
                 }
+
+                Ok(EventQueryResult {
+                    data: results,
+                    next: last_examined_id.map(|id| id.to_owned()),
+                })
             }
-            None => 0,
-        };
+            Order::Desc => {
+                // Find end position (exclusive upper bound) based on cursor.
+                let end = match &params.before {
+                    Some(before) => {
+                        match events.binary_search_by(|e| e.id.as_str().cmp(before.as_str())) {
+                            Ok(pos) => pos,  // Exclusive: don't include the cursor event.
+                            Err(pos) => pos, // Insertion point is the exclusive upper bound.
+                        }
+                    }
+                    None => events.len(),
+                };
 
-        let mut results: Vec<EventRow> = Vec::with_capacity(limit.min(events.len()));
-        let mut last_examined_id: Option<&str> = None;
+                let mut results: Vec<EventRow> = Vec::with_capacity(limit.min(events.len()));
+                let mut last_examined_id: Option<&str> = None;
 
-        for event in events.iter().skip(start) {
-            if results.len() >= limit {
-                break;
-            }
-
-            last_examined_id = Some(&event.external_id);
-
-            // Apply tx_hash filter.
-            if let Some(ref tx) = params.tx {
-                if event.tx_hash != *tx {
-                    continue;
+                for event in events[..end].iter().rev() {
+                    if results.len() >= limit {
+                        break;
+                    }
+                    last_examined_id = Some(&event.external_id);
+                    if let Some(ref tx) = params.tx {
+                        if event.tx_hash != *tx {
+                            continue;
+                        }
+                    }
+                    if !params.filters.is_empty()
+                        && !params.filters.iter().any(|f| event.matches_filter(f))
+                    {
+                        continue;
+                    }
+                    results.push(event.to_event_row());
                 }
-            }
 
-            // Apply structured filters (OR across filters, AND within each).
-            if !params.filters.is_empty() {
-                let matches = params.filters.iter().any(|f| event.matches_filter(f));
-                if !matches {
-                    continue;
-                }
+                Ok(EventQueryResult {
+                    data: results,
+                    next: last_examined_id.map(|id| id.to_owned()),
+                })
             }
-
-            results.push(event.to_event_row());
         }
-
-        Ok(EventQueryResult {
-            data: results,
-            // Advance the cursor to the last examined event so clients
-            // don't re-visit already-scanned ranges when filters skip events.
-            next: last_examined_id.map(|id| id.to_owned()),
-        })
     }
 
     /// Query across multiple ledgers when a cursor is provided without a ledger pin.
@@ -428,6 +467,80 @@ impl EventStore {
                     if !matches {
                         continue;
                     }
+                }
+
+                results.push(event.to_event_row());
+            }
+        }
+
+        Ok(EventQueryResult {
+            data: results,
+            next: last_examined_id,
+        })
+    }
+
+    /// Query across multiple ledgers in descending order.
+    fn query_cross_ledger_desc(
+        &self,
+        before: &str,
+        params: &EventQueryParams,
+    ) -> Result<EventQueryResult, crate::Error> {
+        // Get sorted ledger sequences in descending order.
+        let mut ledger_seqs: Vec<u32> = self.ledgers.iter().map(|kv| *kv.key()).collect();
+        ledger_seqs.sort_unstable_by(|a, b| b.cmp(a));
+
+        // Parse cursor to determine starting ledger.
+        let cursor_ledger =
+            crate::ledger::event_id::parse_event_id(before).map(|(seq, _, _, _, _)| seq);
+
+        let limit = params.limit as usize;
+        let mut results: Vec<EventRow> = Vec::with_capacity(limit);
+        let mut last_examined_id: Option<String> = None;
+
+        for &seq in &ledger_seqs {
+            // Skip ledgers that come after the cursor's ledger (in time).
+            if let Some(cl) = cursor_ledger {
+                if seq > cl {
+                    continue;
+                }
+            }
+
+            if results.len() >= limit {
+                break;
+            }
+
+            let partition = match self.ledgers.get(&seq) {
+                Some(p) => Arc::clone(p.value()),
+                None => continue,
+            };
+
+            let events = &partition.events;
+            let end = if Some(seq) == cursor_ledger || cursor_ledger.is_none() {
+                match events.binary_search_by(|e| e.id.as_str().cmp(before)) {
+                    Ok(pos) => pos,
+                    Err(pos) => pos,
+                }
+            } else {
+                events.len()
+            };
+
+            for event in events[..end].iter().rev() {
+                if results.len() >= limit {
+                    break;
+                }
+
+                last_examined_id = Some(event.external_id.clone());
+
+                if let Some(ref tx) = params.tx {
+                    if event.tx_hash != *tx {
+                        continue;
+                    }
+                }
+
+                if !params.filters.is_empty()
+                    && !params.filters.iter().any(|f| event.matches_filter(f))
+                {
+                    continue;
                 }
 
                 results.push(event.to_event_row());
@@ -529,11 +642,21 @@ pub struct EventFilter {
     pub topics: Option<Vec<serde_json::Value>>,
 }
 
+/// Sort order for event queries.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Order {
+    #[default]
+    Asc,
+    Desc,
+}
+
 /// Parameters for querying events.
 #[derive(Debug, Default, Clone)]
 pub struct EventQueryParams {
     pub limit: u32,
     pub after: Option<String>,
+    pub before: Option<String>,
+    pub order: Order,
     pub ledger: Option<u32>,
     /// Filter all results to a single transaction hash.
     pub tx: Option<String>,

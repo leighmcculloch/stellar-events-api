@@ -29,6 +29,8 @@ Returns a paginated list of contract events. Parameters can be passed as query s
 |---|---|---|
 | `limit` | integer | Number of events to return (1-100, default 10) |
 | `after` | string | Cursor for forward pagination (event ID) |
+| `before` | string | Cursor for backward pagination (event ID, use with `order=desc`) |
+| `order` | string | Sort order: `"asc"` (default) or `"desc"` |
 | `ledger` | integer | Return events from this ledger sequence |
 | `tx` | string | Limit results to events from this transaction hash |
 | `filters` | array | Structured filters (see below). JSON-encoded string for GET, native array for POST |
