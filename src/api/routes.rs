@@ -7,7 +7,7 @@ use axum::Json;
 
 use super::error::ApiError;
 use super::types::{Event, ListResponse, PrettyJson, StatusResponse};
-use crate::db::{EventFilter, EventQueryParams, Order};
+use crate::db::{EventFilter, EventQueryParams};
 use crate::ledger::events::EventType;
 use crate::{sync, AppState};
 
@@ -54,8 +54,6 @@ pub struct ListEventsRequest {
     #[serde(default)]
     before: Option<String>,
     #[serde(default)]
-    order: Option<String>,
-    #[serde(default)]
     ledger: Option<u32>,
     #[serde(default)]
     tx: Option<String>,
@@ -82,7 +80,6 @@ pub async fn list_events_get(
 
     let after = multi.get("after").and_then(|v| v.first()).cloned();
     let before = multi.get("before").and_then(|v| v.first()).cloned();
-    let order = multi.get("order").and_then(|v| v.first()).cloned();
 
     let ledger = parse_u32_multi(&multi, "ledger")?;
 
@@ -101,7 +98,6 @@ pub async fn list_events_get(
         limit,
         after,
         before,
-        order,
         ledger,
         tx,
         filters,
@@ -219,37 +215,11 @@ async fn list_events(
         });
     }
 
-    // Validate order parameter.
-    let order = match req.order.as_deref() {
-        None | Some("asc") => Order::Asc,
-        Some("desc") => Order::Desc,
-        Some(_) => {
-            return Err(ApiError::BadRequest {
-                message: "order must be \"asc\" or \"desc\"".to_string(),
-                param: Some("order".to_string()),
-            });
-        }
-    };
-
     // Validate mutual exclusivity of after and before.
     if req.after.is_some() && req.before.is_some() {
         return Err(ApiError::BadRequest {
             message: "after and before cannot both be provided".to_string(),
             param: Some("before".to_string()),
-        });
-    }
-
-    // Validate cursor/order consistency.
-    if req.before.is_some() && order == Order::Asc {
-        return Err(ApiError::BadRequest {
-            message: "before requires order=desc".to_string(),
-            param: Some("before".to_string()),
-        });
-    }
-    if req.after.is_some() && order == Order::Desc {
-        return Err(ApiError::BadRequest {
-            message: "after requires order=asc".to_string(),
-            param: Some("after".to_string()),
         });
     }
 
@@ -304,10 +274,7 @@ async fn list_events(
     }
 
     // Determine target ledger for on-demand backfill
-    let cursor_ref = match order {
-        Order::Asc => after.as_ref(),
-        Order::Desc => before.as_ref(),
-    };
+    let cursor_ref = after.as_ref().or(before.as_ref());
     let target_ledger = if req.ledger.is_some() {
         req.ledger
     } else if let Some(cursor) = cursor_ref {
@@ -323,7 +290,6 @@ async fn list_events(
         limit,
         after,
         before,
-        order,
         ledger: req.ledger,
         tx: req.tx,
         filters: req.filters,

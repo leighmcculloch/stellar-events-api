@@ -207,12 +207,12 @@ async fn test_list_events_with_data() {
 }
 
 #[tokio::test]
-async fn test_pagination_forward() {
+async fn test_pagination_with_before() {
     let events = make_test_events(5, 1000);
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    // First page
+    // First page (newest first, no cursor)
     let resp = client
         .get(format!("{}/events?ledger=1000&limit=2", base_url))
         .send()
@@ -221,23 +221,28 @@ async fn test_pagination_forward() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 2);
-    let last_id = data[1]["id"].as_str().unwrap().to_string();
+    let next_cursor = body["next"].as_str().unwrap().to_string();
 
-    // Second page
+    // Second page using `before` with the next cursor
     let resp = client
-        .get(format!("{}/events?limit=2&after={}", base_url, last_id))
+        .get(format!(
+            "{}/events?limit=2&before={}",
+            base_url, next_cursor
+        ))
         .send()
         .await
         .unwrap();
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 2);
-    assert_ne!(data[0]["id"].as_str().unwrap(), last_id.as_str());
+    let next_cursor = body["next"].as_str().unwrap().to_string();
 
     // Third page (last)
-    let last_id = data[1]["id"].as_str().unwrap().to_string();
     let resp = client
-        .get(format!("{}/events?limit=2&after={}", base_url, last_id))
+        .get(format!(
+            "{}/events?limit=2&before={}",
+            base_url, next_cursor
+        ))
         .send()
         .await
         .unwrap();
@@ -565,12 +570,12 @@ async fn test_filters_combined_with_pagination() {
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 1);
 
-    // Second page
-    let last_id = data[0]["id"].as_str().unwrap();
+    // Second page using before cursor
+    let next_cursor = body["next"].as_str().unwrap();
     let resp = client
         .get(format!(
-            "{}/events?limit=1&after={}&filters={}",
-            base_url, last_id, fp
+            "{}/events?limit=1&before={}&filters={}",
+            base_url, next_cursor, fp
         ))
         .send()
         .await
@@ -823,77 +828,63 @@ async fn test_post_empty_body() {
     assert_eq!(body["object"], "list");
 }
 
-// --- order=desc and before cursor ---
+// --- Descending order and before cursor ---
 
 #[tokio::test]
-async fn test_order_desc_returns_reverse_order() {
+async fn test_default_returns_descending_order() {
     let events = make_test_events(5, 1000);
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    // Get ascending order first for reference.
     let resp = client
-        .get(format!("{}/events?ledger=1000&order=asc", base_url))
+        .get(format!("{}/events?ledger=1000", base_url))
         .send()
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    let asc_body: serde_json::Value = resp.json().await.unwrap();
-    let asc_ids: Vec<&str> = asc_body["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["id"].as_str().unwrap())
-        .collect();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 5);
 
-    // Get descending order.
-    let resp = client
-        .get(format!("{}/events?ledger=1000&order=desc", base_url))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let desc_body: serde_json::Value = resp.json().await.unwrap();
-    let desc_ids: Vec<&str> = desc_body["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["id"].as_str().unwrap())
-        .collect();
-
-    // Desc should be the reverse of asc.
-    let mut reversed_asc = asc_ids.clone();
-    reversed_asc.reverse();
-    assert_eq!(desc_ids, reversed_asc);
+    // Each event has a unique tx_index (0..4). In descending order,
+    // tx hashes should go from tx_index=4 to tx_index=0.
+    // make_test_events creates tx_hash as format!("{:064x}", i) where i is the index.
+    let tx_hashes: Vec<&str> = data.iter().map(|e| e["tx"].as_str().unwrap()).collect();
+    assert_eq!(tx_hashes[0], format!("{:064x}", 4));
+    assert_eq!(tx_hashes[1], format!("{:064x}", 3));
+    assert_eq!(tx_hashes[2], format!("{:064x}", 2));
+    assert_eq!(tx_hashes[3], format!("{:064x}", 1));
+    assert_eq!(tx_hashes[4], format!("{:064x}", 0));
 }
 
 #[tokio::test]
-async fn test_order_desc_with_before_cursor_paginates_backward() {
+async fn test_before_cursor_paginates_backward() {
     let events = make_test_events(5, 1000);
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    // Get all events in asc order to know their IDs.
+    // Get all events to know their IDs (returned desc).
     let resp = client
-        .get(format!("{}/events?ledger=1000&order=asc", base_url))
+        .get(format!("{}/events?ledger=1000", base_url))
         .send()
         .await
         .unwrap();
-    let asc_body: serde_json::Value = resp.json().await.unwrap();
-    let all_ids: Vec<String> = asc_body["data"]
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let all_ids: Vec<String> = body["data"]
         .as_array()
         .unwrap()
         .iter()
         .map(|e| e["id"].as_str().unwrap().to_string())
         .collect();
     assert_eq!(all_ids.len(), 5);
+    // all_ids[0] is newest (tx4), all_ids[4] is oldest (tx0)
 
-    // Use the last event as `before` cursor with desc order and limit=2.
-    // Should return events before the last one, in reverse order.
+    // Use the 3rd event (middle) as `before` cursor with limit=2.
+    // Should return events older than all_ids[2], in desc order.
     let resp = client
         .get(format!(
-            "{}/events?order=desc&before={}&limit=2",
-            base_url, all_ids[4]
+            "{}/events?before={}&limit=2",
+            base_url, all_ids[2]
         ))
         .send()
         .await
@@ -902,15 +893,31 @@ async fn test_order_desc_with_before_cursor_paginates_backward() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 2);
-    // Events before index 4 in desc order: index 3, index 2.
     assert_eq!(data[0]["id"].as_str().unwrap(), all_ids[3]);
-    assert_eq!(data[1]["id"].as_str().unwrap(), all_ids[2]);
+    assert_eq!(data[1]["id"].as_str().unwrap(), all_ids[4]);
+}
 
-    // Continue paginating backward.
-    let next_cursor = body["next"].as_str().unwrap();
+#[tokio::test]
+async fn test_before_cursor_pagination_continuation() {
+    let events = make_test_events(5, 1000);
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // First page: no cursor, limit=2 → newest 2 events.
+    let resp = client
+        .get(format!("{}/events?ledger=1000&limit=2", base_url))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 2);
+    let next_cursor = body["next"].as_str().unwrap().to_string();
+
+    // Second page: use next as `before`.
     let resp = client
         .get(format!(
-            "{}/events?order=desc&before={}&limit=2",
+            "{}/events?before={}&limit=2",
             base_url, next_cursor
         ))
         .send()
@@ -920,24 +927,64 @@ async fn test_order_desc_with_before_cursor_paginates_backward() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 2);
-    assert_eq!(data[0]["id"].as_str().unwrap(), all_ids[1]);
-    assert_eq!(data[1]["id"].as_str().unwrap(), all_ids[0]);
-}
 
-#[tokio::test]
-async fn test_invalid_order_returns_400() {
-    let base_url = start_test_server(vec![]).await;
-    let client = reqwest::Client::new();
-
+    // Third page
+    let next_cursor = body["next"].as_str().unwrap().to_string();
     let resp = client
-        .get(format!("{}/events?order=invalid", base_url))
+        .get(format!(
+            "{}/events?before={}&limit=2",
+            base_url, next_cursor
+        ))
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 400);
-
+    assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["error"]["param"], "order");
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 1);
+}
+
+#[tokio::test]
+async fn test_after_cursor_returns_newer_events_in_desc() {
+    let events = make_test_events(5, 1000);
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // Get all events to know their IDs (returned desc).
+    let resp = client
+        .get(format!("{}/events?ledger=1000", base_url))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let all_ids: Vec<String> = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(all_ids.len(), 5);
+    // all_ids[0] is newest, all_ids[4] is oldest
+
+    // Use the oldest event as `after` cursor with limit=3.
+    // Should return events newer than all_ids[4], in desc order.
+    let resp = client
+        .get(format!(
+            "{}/events?after={}&limit=3",
+            base_url, all_ids[4]
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 3);
+    // Should be in desc order: all_ids[1], all_ids[2], all_ids[3]
+    // (3 events newer than oldest, returned newest-first)
+    assert_eq!(data[0]["id"].as_str().unwrap(), all_ids[1]);
+    assert_eq!(data[1]["id"].as_str().unwrap(), all_ids[2]);
+    assert_eq!(data[2]["id"].as_str().unwrap(), all_ids[3]);
 }
 
 #[tokio::test]
@@ -971,101 +1018,6 @@ async fn test_after_and_before_together_returns_400() {
         .as_str()
         .unwrap()
         .contains("after and before cannot both be provided"));
-}
-
-#[tokio::test]
-async fn test_default_order_is_ascending() {
-    let events = make_test_events(3, 1000);
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // No order param — should default to ascending.
-    let resp_default = client
-        .get(format!("{}/events?ledger=1000", base_url))
-        .send()
-        .await
-        .unwrap();
-    let body_default: serde_json::Value = resp_default.json().await.unwrap();
-
-    let resp_asc = client
-        .get(format!("{}/events?ledger=1000&order=asc", base_url))
-        .send()
-        .await
-        .unwrap();
-    let body_asc: serde_json::Value = resp_asc.json().await.unwrap();
-
-    let default_ids: Vec<&str> = body_default["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["id"].as_str().unwrap())
-        .collect();
-    let asc_ids: Vec<&str> = body_asc["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["id"].as_str().unwrap())
-        .collect();
-
-    assert_eq!(default_ids, asc_ids);
-}
-
-#[tokio::test]
-async fn test_before_without_order_desc_returns_400() {
-    let events = make_test_events(2, 1000);
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // Get a valid cursor.
-    let resp = client
-        .get(format!("{}/events?ledger=1000&limit=1", base_url))
-        .send()
-        .await
-        .unwrap();
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let id = body["data"][0]["id"].as_str().unwrap();
-
-    // before without order=desc should fail.
-    let resp = client
-        .get(format!("{}/events?before={}", base_url, id))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 400);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("before requires order=desc"));
-}
-
-#[tokio::test]
-async fn test_after_with_order_desc_returns_400() {
-    let events = make_test_events(2, 1000);
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // Get a valid cursor.
-    let resp = client
-        .get(format!("{}/events?ledger=1000&limit=1", base_url))
-        .send()
-        .await
-        .unwrap();
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let id = body["data"][0]["id"].as_str().unwrap();
-
-    // after with order=desc should fail.
-    let resp = client
-        .get(format!("{}/events?order=desc&after={}", base_url, id))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 400);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("after requires order=asc"));
 }
 
 // --- Response shape ---

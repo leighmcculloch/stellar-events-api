@@ -257,15 +257,17 @@ impl EventStore {
     }
 
     /// Query events with cursor-based pagination and filtering.
+    ///
+    /// Results are always returned in descending order (newest first).
+    /// - `after` cursor: selects events newer than the cursor, returned desc.
+    /// - `before` cursor: selects events older than the cursor, returned desc.
+    /// - No cursor: returns the most recent events.
     #[tracing::instrument(skip_all, fields(limit = params.limit, ledger = params.ledger, filters = params.filters.len()))]
     pub fn query_events(
         &self,
         params: &EventQueryParams,
     ) -> Result<EventQueryResult, crate::Error> {
-        let cursor = match params.order {
-            Order::Asc => params.after.as_ref(),
-            Order::Desc => params.before.as_ref(),
-        };
+        let cursor = params.after.as_ref().or(params.before.as_ref());
 
         // Determine the pinned ledger.
         let pinned_ledger = match (cursor, params.ledger) {
@@ -287,11 +289,11 @@ impl EventStore {
         }
 
         // Cross-ledger query (cursor provided, no ledger pin).
-        if let Some(cursor) = cursor {
-            return match params.order {
-                Order::Asc => self.query_cross_ledger(cursor, params),
-                Order::Desc => self.query_cross_ledger_desc(cursor, params),
-            };
+        if let Some(ref after) = params.after {
+            return self.query_cross_ledger_after(after, params);
+        }
+        if let Some(ref before) = params.before {
+            return self.query_cross_ledger_before(before, params);
         }
 
         // No ledger, no cursor — return empty.
@@ -302,6 +304,8 @@ impl EventStore {
     }
 
     /// Query events within a single ledger partition.
+    ///
+    /// Always returns results in descending order (newest first).
     fn query_single_ledger(
         &self,
         ledger_seq: u32,
@@ -320,97 +324,90 @@ impl EventStore {
         let events = &partition.events;
         let limit = params.limit as usize;
 
-        match params.order {
-            Order::Asc => {
-                // Find start position based on cursor.
-                let start = match &params.after {
-                    Some(after) => {
-                        match events.binary_search_by(|e| e.id.as_str().cmp(after.as_str())) {
-                            Ok(pos) => pos + 1,
-                            Err(pos) => pos,
-                        }
-                    }
-                    None => 0,
-                };
+        if let Some(ref after) = params.after {
+            // `after` cursor: select events with id > after, iterate forward,
+            // then reverse for descending display. The `next` cursor advances
+            // forward so the client can pass it as `after` again.
+            let start = match events.binary_search_by(|e| e.id.as_str().cmp(after.as_str())) {
+                Ok(pos) => pos + 1,
+                Err(pos) => pos,
+            };
 
-                let mut results: Vec<EventRow> = Vec::with_capacity(limit.min(events.len()));
-                let mut last_examined_id: Option<&str> = None;
+            let mut results: Vec<EventRow> = Vec::with_capacity(limit.min(events.len()));
+            let mut last_examined_id: Option<&str> = None;
 
-                for event in events.iter().skip(start) {
-                    if results.len() >= limit {
-                        break;
-                    }
-                    last_examined_id = Some(&event.external_id);
-                    if let Some(ref tx) = params.tx {
-                        if event.tx_hash != *tx {
-                            continue;
-                        }
-                    }
-                    if !params.filters.is_empty()
-                        && !params.filters.iter().any(|f| event.matches_filter(f))
-                    {
-                        continue;
-                    }
-                    results.push(event.to_event_row());
+            for event in events.iter().skip(start) {
+                if results.len() >= limit {
+                    break;
                 }
-
-                Ok(EventQueryResult {
-                    data: results,
-                    next: last_examined_id.map(|id| id.to_owned()),
-                })
-            }
-            Order::Desc => {
-                // Find end position (exclusive upper bound) based on cursor.
-                let end = match &params.before {
-                    Some(before) => {
-                        match events.binary_search_by(|e| e.id.as_str().cmp(before.as_str())) {
-                            Ok(pos) => pos,  // Exclusive: don't include the cursor event.
-                            Err(pos) => pos, // Insertion point is the exclusive upper bound.
-                        }
-                    }
-                    None => events.len(),
-                };
-
-                let mut results: Vec<EventRow> = Vec::with_capacity(limit.min(events.len()));
-                let mut last_examined_id: Option<&str> = None;
-
-                for event in events[..end].iter().rev() {
-                    if results.len() >= limit {
-                        break;
-                    }
-                    last_examined_id = Some(&event.external_id);
-                    if let Some(ref tx) = params.tx {
-                        if event.tx_hash != *tx {
-                            continue;
-                        }
-                    }
-                    if !params.filters.is_empty()
-                        && !params.filters.iter().any(|f| event.matches_filter(f))
-                    {
-                        continue;
-                    }
-                    results.push(event.to_event_row());
+                last_examined_id = Some(&event.external_id);
+                if !self.event_matches(event, params) {
+                    continue;
                 }
-
-                Ok(EventQueryResult {
-                    data: results,
-                    next: last_examined_id.map(|id| id.to_owned()),
-                })
+                results.push(event.to_event_row());
             }
+
+            results.reverse();
+            Ok(EventQueryResult {
+                data: results,
+                next: last_examined_id.map(|id| id.to_owned()),
+            })
+        } else {
+            // No cursor or `before` cursor: iterate backward (already desc).
+            let end = match &params.before {
+                Some(before) => {
+                    match events.binary_search_by(|e| e.id.as_str().cmp(before.as_str())) {
+                        Ok(pos) => pos,
+                        Err(pos) => pos,
+                    }
+                }
+                None => events.len(),
+            };
+
+            let mut results: Vec<EventRow> = Vec::with_capacity(limit.min(events.len()));
+            let mut last_examined_id: Option<&str> = None;
+
+            for event in events[..end].iter().rev() {
+                if results.len() >= limit {
+                    break;
+                }
+                last_examined_id = Some(&event.external_id);
+                if !self.event_matches(event, params) {
+                    continue;
+                }
+                results.push(event.to_event_row());
+            }
+
+            Ok(EventQueryResult {
+                data: results,
+                next: last_examined_id.map(|id| id.to_owned()),
+            })
         }
     }
 
-    /// Query across multiple ledgers when a cursor is provided without a ledger pin.
-    fn query_cross_ledger(
+    /// Check whether a single event passes the tx and filter constraints.
+    fn event_matches(&self, event: &StoredEvent, params: &EventQueryParams) -> bool {
+        if let Some(ref tx) = params.tx {
+            if event.tx_hash != *tx {
+                return false;
+            }
+        }
+        if !params.filters.is_empty() && !params.filters.iter().any(|f| event.matches_filter(f)) {
+            return false;
+        }
+        true
+    }
+
+    /// Cross-ledger query with `after` cursor: iterate forward across ledgers,
+    /// then reverse the collected results for descending display.
+    fn query_cross_ledger_after(
         &self,
         after: &str,
         params: &EventQueryParams,
     ) -> Result<EventQueryResult, crate::Error> {
-        // Get sorted ledger sequences.
         let mut ledger_seqs: Vec<u32> = self.ledgers.iter().map(|kv| *kv.key()).collect();
         ledger_seqs.sort_unstable();
 
-        // Parse cursor to determine starting ledger.
         let cursor_ledger =
             crate::ledger::event_id::parse_event_id(after).map(|(seq, _, _, _, _)| seq);
 
@@ -419,7 +416,6 @@ impl EventStore {
         let mut last_examined_id: Option<String> = None;
 
         for &seq in &ledger_seqs {
-            // Skip ledgers before the cursor's ledger.
             if let Some(cl) = cursor_ledger {
                 if seq < cl {
                     continue;
@@ -436,60 +432,44 @@ impl EventStore {
             };
 
             let events = &partition.events;
-            let cursor_for_ledger = if Some(seq) == cursor_ledger || cursor_ledger.is_none() {
-                Some(after)
-            } else {
-                None
-            };
-            let start = match cursor_for_ledger {
-                Some(cursor) => match events.binary_search_by(|e| e.id.as_str().cmp(cursor)) {
+            let start = if Some(seq) == cursor_ledger {
+                match events.binary_search_by(|e| e.id.as_str().cmp(after)) {
                     Ok(pos) => pos + 1,
                     Err(pos) => pos,
-                },
-                None => 0,
+                }
+            } else {
+                0
             };
 
             for event in events.iter().skip(start) {
                 if results.len() >= limit {
                     break;
                 }
-
                 last_examined_id = Some(event.external_id.clone());
-
-                if let Some(ref tx) = params.tx {
-                    if event.tx_hash != *tx {
-                        continue;
-                    }
+                if !self.event_matches(event, params) {
+                    continue;
                 }
-
-                if !params.filters.is_empty() {
-                    let matches = params.filters.iter().any(|f| event.matches_filter(f));
-                    if !matches {
-                        continue;
-                    }
-                }
-
                 results.push(event.to_event_row());
             }
         }
 
+        results.reverse();
         Ok(EventQueryResult {
             data: results,
             next: last_examined_id,
         })
     }
 
-    /// Query across multiple ledgers in descending order.
-    fn query_cross_ledger_desc(
+    /// Cross-ledger query with `before` cursor: iterate backward across ledgers
+    /// (already descending).
+    fn query_cross_ledger_before(
         &self,
         before: &str,
         params: &EventQueryParams,
     ) -> Result<EventQueryResult, crate::Error> {
-        // Get sorted ledger sequences in descending order.
         let mut ledger_seqs: Vec<u32> = self.ledgers.iter().map(|kv| *kv.key()).collect();
         ledger_seqs.sort_unstable_by(|a, b| b.cmp(a));
 
-        // Parse cursor to determine starting ledger.
         let cursor_ledger =
             crate::ledger::event_id::parse_event_id(before).map(|(seq, _, _, _, _)| seq);
 
@@ -498,7 +478,6 @@ impl EventStore {
         let mut last_examined_id: Option<String> = None;
 
         for &seq in &ledger_seqs {
-            // Skip ledgers that come after the cursor's ledger (in time).
             if let Some(cl) = cursor_ledger {
                 if seq > cl {
                     continue;
@@ -515,7 +494,7 @@ impl EventStore {
             };
 
             let events = &partition.events;
-            let end = if Some(seq) == cursor_ledger || cursor_ledger.is_none() {
+            let end = if Some(seq) == cursor_ledger {
                 match events.binary_search_by(|e| e.id.as_str().cmp(before)) {
                     Ok(pos) => pos,
                     Err(pos) => pos,
@@ -528,21 +507,10 @@ impl EventStore {
                 if results.len() >= limit {
                     break;
                 }
-
                 last_examined_id = Some(event.external_id.clone());
-
-                if let Some(ref tx) = params.tx {
-                    if event.tx_hash != *tx {
-                        continue;
-                    }
-                }
-
-                if !params.filters.is_empty()
-                    && !params.filters.iter().any(|f| event.matches_filter(f))
-                {
+                if !self.event_matches(event, params) {
                     continue;
                 }
-
                 results.push(event.to_event_row());
             }
         }
@@ -642,21 +610,12 @@ pub struct EventFilter {
     pub topics: Option<Vec<serde_json::Value>>,
 }
 
-/// Sort order for event queries.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Order {
-    #[default]
-    Asc,
-    Desc,
-}
-
 /// Parameters for querying events.
 #[derive(Debug, Default, Clone)]
 pub struct EventQueryParams {
     pub limit: u32,
     pub after: Option<String>,
     pub before: Option<String>,
-    pub order: Order,
     pub ledger: Option<u32>,
     /// Filter all results to a single transaction hash.
     pub tx: Option<String>,
@@ -668,9 +627,9 @@ pub struct EventQueryParams {
 #[derive(Debug)]
 pub struct EventQueryResult {
     pub data: Vec<EventRow>,
-    /// Cursor for the next page. Clients should pass this as `after` in subsequent requests.
-    /// When filters are applied, this may point beyond the last returned event to avoid
-    /// re-scanning ranges that have already been examined.
+    /// Cursor for the next page. Pass as `before` to continue paginating backward,
+    /// or as `after` to continue polling forward. When filters are applied, this may
+    /// point beyond the last returned event to avoid re-scanning examined ranges.
     pub next: Option<String>,
 }
 

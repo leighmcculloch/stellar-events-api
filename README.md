@@ -28,9 +28,8 @@ Returns a paginated list of contract events. Parameters can be passed as query s
 | Parameter | Type | Description |
 |---|---|---|
 | `limit` | integer | Number of events to return (1-100, default 10) |
-| `after` | string | Cursor for forward pagination (event ID) |
-| `before` | string | Cursor for backward pagination (event ID, use with `order=desc`) |
-| `order` | string | Sort order: `"asc"` (default) or `"desc"` |
+| `after` | string | Return events newer than this cursor (event ID) |
+| `before` | string | Return events older than this cursor (event ID) |
 | `ledger` | integer | Return events from this ledger sequence |
 | `tx` | string | Limit results to events from this transaction hash |
 | `filters` | array | Structured filters (see below). JSON-encoded string for GET, native array for POST |
@@ -56,7 +55,7 @@ GET /events?filters=[
 ]
 ```
 
-If no `ledger` or `after` is provided, the API defaults to the latest ingested ledger.
+Results are always returned in descending order (newest first). If no `ledger` or cursor is provided, the API defaults to the latest ingested ledger.
 
 **Examples:**
 

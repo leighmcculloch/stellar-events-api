@@ -290,7 +290,6 @@ async fn test_cold_fetch_breakdown() {
             limit: 100,
             after: None,
             before: None,
-            order: Default::default(),
             ledger: Some(1000),
             tx: None,
             filters: vec![],

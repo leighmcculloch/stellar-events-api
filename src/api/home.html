@@ -81,9 +81,8 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   <table>
     <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
     <tr><td><code>limit</code></td><td>integer</td><td>Number of events to return (1–100, default 10)</td></tr>
-    <tr><td><code>after</code></td><td>string</td><td>Cursor for forward pagination — the event <code>id</code> to start after</td></tr>
-    <tr><td><code>before</code></td><td>string</td><td>Cursor for backward pagination — the event <code>id</code> to start before (use with <code>order=desc</code>)</td></tr>
-    <tr><td><code>order</code></td><td>string</td><td>Sort order: <code>"asc"</code> (default) or <code>"desc"</code></td></tr>
+    <tr><td><code>after</code></td><td>string</td><td>Return events newer than this cursor (event <code>id</code>)</td></tr>
+    <tr><td><code>before</code></td><td>string</td><td>Return events older than this cursor (event <code>id</code>). Use the <code>next</code> field from a previous response to paginate.</td></tr>
     <tr><td><code>ledger</code></td><td>integer</td><td>Only return events from this ledger sequence</td></tr>
     <tr><td><code>tx</code></td><td>string</td><td>Limit to events from this transaction hash (requires <code>ledger</code>)</td></tr>
     <tr><td><code>filters</code></td><td>JSON string / array</td><td>Filter objects (see below). GET accepts a JSON-encoded string; POST accepts an array.</td></tr>
@@ -118,6 +117,24 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   ]
 }</pre>
 
+  <h3>Pagination</h3>
+  <p>Results are always returned in <strong>descending order</strong> (newest first). Use the <code>before</code> and <code>after</code> cursors to page through events.</p>
+
+  <p><strong>Browsing history</strong> &mdash; page backward through older events:</p>
+  <ol>
+    <li>Fetch the first page: <code>GET /events?limit=10</code></li>
+    <li>The response includes a <code>next</code> field with a cursor.</li>
+    <li>Pass it as <code>before</code> to get the next page of older events: <code>GET /events?limit=10&amp;before=evt_...</code></li>
+    <li>Repeat until <code>data</code> is empty.</li>
+  </ol>
+
+  <p><strong>Streaming new events</strong> &mdash; poll for events newer than the last seen:</p>
+  <ol>
+    <li>Save the <code>id</code> of the newest event you've seen (the first item in <code>data</code>).</li>
+    <li>Poll with <code>after</code>: <code>GET /events?after=evt_...</code></li>
+    <li>Any events created since your last seen <code>id</code> are returned, newest first.</li>
+  </ol>
+
   <h3>Try it</h3>
   <div class="tabs" data-group="events-list">
     <button class="tab active" data-tab="latest">Latest</button>
@@ -126,7 +143,6 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <button class="tab" data-tab="bycontract">By contract</button>
     <button class="tab" data-tab="byledger">By ledger</button>
     <button class="tab" data-tab="pagination">Pagination</button>
-    <button class="tab" data-tab="reverse">Reverse</button>
   </div>
 
   <!-- Latest events -->
@@ -293,32 +309,6 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     </div>
   </div>
 
-  <!-- Reverse order (desc) -->
-  <div class="tab-panel" id="panel-reverse">
-    <div class="toggle-row">
-      <button class="toggle-btn active" data-method="GET" data-panel="reverse">GET</button>
-      <button class="toggle-btn" data-method="POST" data-panel="reverse">POST</button>
-    </div>
-    <div class="request-get" id="req-get-reverse">
-      <textarea class="request-area" rows="1">/events?limit=5&order=desc</textarea>
-    </div>
-    <div class="request-post" id="req-post-reverse" style="display:none">
-      <textarea class="request-area" rows="4">{
-  "limit": 5,
-  "order": "desc"
-}</textarea>
-    </div>
-    <div class="curl-area" id="curl-reverse">
-      <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
-      <pre></pre>
-    </div>
-    <button class="submit-btn" data-panel="reverse">Submit<span class="spinner"></span></button>
-    <div class="response-area" id="resp-reverse">
-      <div class="response-label">Response<span class="response-time"></span></div>
-      <pre>Click Submit to send a request.</pre>
-    </div>
-  </div>
-
   </div>
 </details>
 
@@ -426,7 +416,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   }
 
   // Build curl for all panels on load
-  var panels = ['latest','bytype','bytopics','bycontract','byledger','pagination','reverse','getbyid','health'];
+  var panels = ['latest','bytype','bytopics','bycontract','byledger','pagination','getbyid','health'];
   panels.forEach(buildCurl);
 
   // Copy curl on click
