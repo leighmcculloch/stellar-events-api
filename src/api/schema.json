@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "/schema",
+  "title": "Stellar Events API — POST /events request body",
+  "type": "object",
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Number of events to return (default 10)."
+    },
+    "after": {
+      "type": "string",
+      "description": "Return events newer than this cursor (event id)."
+    },
+    "before": {
+      "type": "string",
+      "description": "Return events older than this cursor (event id)."
+    },
+    "q": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Filter query string (key:value syntax)."
+        },
+        { "$ref": "#/$defs/QueryExpr" }
+      ],
+      "description": "Filter query — a string or a structured JSON expression."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "QueryExpr": {
+      "oneOf": [
+        { "$ref": "#/$defs/AndExpr" },
+        { "$ref": "#/$defs/OrExpr" },
+        { "$ref": "#/$defs/Qualifier" }
+      ]
+    },
+    "AndExpr": {
+      "type": "object",
+      "properties": {
+        "and": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/QueryExpr" },
+          "minItems": 1
+        }
+      },
+      "required": ["and"],
+      "additionalProperties": false
+    },
+    "OrExpr": {
+      "type": "object",
+      "properties": {
+        "or": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/QueryExpr" },
+          "minItems": 1
+        }
+      },
+      "required": ["or"],
+      "additionalProperties": false
+    },
+    "Qualifier": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["contract", "system", "diagnostic"]
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "contract": { "type": "string" }
+          },
+          "required": ["contract"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ledger": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["ledger"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tx": { "type": "string" }
+          },
+          "required": ["tx"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic": {}
+          },
+          "required": ["topic"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic0": {}
+          },
+          "required": ["topic0"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic1": {}
+          },
+          "required": ["topic1"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic2": {}
+          },
+          "required": ["topic2"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic3": {}
+          },
+          "required": ["topic3"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

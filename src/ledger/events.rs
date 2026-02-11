@@ -216,6 +216,7 @@ fn extract_events_from_v4(
 }
 
 /// Build an ExtractedEvent from a ContractEvent and push it.
+#[allow(clippy::too_many_arguments)]
 fn push_event(
     contract_event: &ContractEvent,
     seq: u32,
