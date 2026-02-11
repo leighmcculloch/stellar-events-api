@@ -142,14 +142,50 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   </ul>
 
   <h3 id="json-query-syntax">JSON Query Syntax (POST only)</h3>
-  <p>In POST requests, <code>q</code> can also be a structured JSON object. The format uses <code>and</code>/<code>or</code> nodes and single-key qualifier objects. See the <a href="/schema">JSON Schema</a>.</p>
+  <p>In POST requests, <code>q</code> can be a structured JSON object instead of a string. The format uses <code>and</code>/<code>or</code> nodes and single-key qualifier objects. See the <a href="/schema">JSON Schema</a>.</p>
+
+  <h3 id="json-node-types">Node types</h3>
+  <p>Every node is a JSON object with exactly one key:</p>
+  <table>
+    <tr><th>Node</th><th>Shape</th><th>Description</th></tr>
+    <tr><td>Qualifier</td><td><code>{"key": value}</code></td><td>A single filter condition. Key must be one of the qualifier keys below.</td></tr>
+    <tr><td>And</td><td><code>{"and": [expr, ...]}</code></td><td>All children must match. Array length &ge; 1.</td></tr>
+    <tr><td>Or</td><td><code>{"or": [expr, ...]}</code></td><td>At least one child must match. Array length &ge; 1.</td></tr>
+  </table>
+
+  <h3 id="json-qualifier-keys">Qualifier keys</h3>
+  <table>
+    <tr><th>Key</th><th>JSON value type</th><th>Example</th></tr>
+    <tr><td><code>type</code></td><td>string (<code>"contract"</code>, <code>"system"</code>, <code>"diagnostic"</code>)</td><td><code>{"type":"contract"}</code></td></tr>
+    <tr><td><code>contract</code></td><td>string (Stellar contract strkey)</td><td><code>{"contract":"CCW67..."}</code></td></tr>
+    <tr><td><code>ledger</code></td><td>integer</td><td><code>{"ledger":58000000}</code></td></tr>
+    <tr><td><code>tx</code></td><td>string (transaction hash; requires <code>ledger</code>)</td><td><code>{"tx":"abc123..."}</code></td></tr>
+    <tr><td><code>topic</code></td><td>any JSON (XDR-JSON ScVal, matches any position)</td><td><code>{"topic":{"symbol":"transfer"}}</code></td></tr>
+    <tr><td><code>topic0</code>&hellip;<code>topic3</code></td><td>any JSON (XDR-JSON ScVal, matches specific position)</td><td><code>{"topic0":{"symbol":"transfer"}}</code></td></tr>
+  </table>
+
+  <h3 id="json-examples">JSON query examples</h3>
   <table>
     <tr><th>String syntax</th><th>JSON syntax</th></tr>
     <tr><td><code>type:contract</code></td><td><code>{"type":"contract"}</code></td></tr>
     <tr><td><code>type:contract contract:CCW67...</code></td><td><code>{"and":[{"type":"contract"},{"contract":"CCW67..."}]}</code></td></tr>
     <tr><td><code>type:contract OR type:system</code></td><td><code>{"or":[{"type":"contract"},{"type":"system"}]}</code></td></tr>
     <tr><td><code>(type:contract OR type:system) contract:CCW67...</code></td><td><code>{"and":[{"or":[{"type":"contract"},{"type":"system"}]},{"contract":"CCW67..."}]}</code></td></tr>
+    <tr><td><code>topic0:{"symbol":"transfer"}</code></td><td><code>{"topic0":{"symbol":"transfer"}}</code></td></tr>
+    <tr><td><code>ledger:100 tx:abc</code></td><td><code>{"and":[{"ledger":100},{"tx":"abc"}]}</code></td></tr>
   </table>
+
+  <p>A full POST request body using the JSON format:</p>
+  <pre>{
+  "limit": 10,
+  "q": {
+    "and": [
+      {"or": [{"type": "contract"}, {"type": "system"}]},
+      {"contract": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"},
+      {"topic0": {"symbol": "transfer"}}
+    ]
+  }
+}</pre>
 
   <h3 id="query-limits">Query Limits</h3>
   <table>
