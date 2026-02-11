@@ -4,6 +4,7 @@ WORKDIR /app
 ARG BUILD_REPO=""
 ARG BUILD_BRANCH=""
 ARG BUILD_COMMIT=""
+ARG BUILD_PR=""
 
 # Cache dependencies: copy manifests, create stub source, build deps only.
 COPY Cargo.toml Cargo.lock ./
@@ -16,7 +17,7 @@ RUN mkdir src \
 # Build the real binary.
 COPY src src
 RUN touch src/main.rs src/lib.rs \
-    && BUILD_REPO="$BUILD_REPO" BUILD_BRANCH="$BUILD_BRANCH" BUILD_COMMIT="$BUILD_COMMIT" \
+    && BUILD_REPO="$BUILD_REPO" BUILD_BRANCH="$BUILD_BRANCH" BUILD_COMMIT="$BUILD_COMMIT" BUILD_PR="$BUILD_PR" \
        cargo build --release
 
 FROM debian:trixie-slim

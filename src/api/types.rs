@@ -102,4 +102,5 @@ pub struct BuildInfo {
     pub repo: &'static str,
     pub branch: &'static str,
     pub commit: &'static str,
+    pub pr: &'static str,
 }

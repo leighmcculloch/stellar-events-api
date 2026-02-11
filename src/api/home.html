@@ -502,7 +502,10 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
         + b.repo.replace('https://github.com/', '')
         + '</a>';
       if (b.branch) {
-        html += '<span class="sep">/</span><code>' + b.branch + '</code>';
+        html += '<span class="sep">/</span><a href="' + b.repo + '/tree/' + b.branch + '" target="_blank" rel="noopener"><code>' + b.branch + '</code></a>';
+      }
+      if (b.pr) {
+        html += '<span class="sep">#</span><a href="' + b.repo + '/pull/' + b.pr + '" target="_blank" rel="noopener"><code>' + b.pr + '</code></a>';
       }
       if (commitShort) {
         html += '<span class="sep">@</span><a href="' + b.repo + '/commit/' + b.commit + '" target="_blank" rel="noopener"><code>' + commitShort + '</code></a>';

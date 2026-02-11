@@ -377,6 +377,7 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoRespo
             repo: option_env!("BUILD_REPO").unwrap_or(""),
             branch: option_env!("BUILD_BRANCH").unwrap_or(""),
             commit: option_env!("BUILD_COMMIT").unwrap_or(""),
+            pr: option_env!("BUILD_PR").unwrap_or(""),
         },
     };
 
