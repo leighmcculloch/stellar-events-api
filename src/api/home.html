@@ -101,7 +101,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><td><code>q</code></td><td>string or object</td><td>Filter query — a string (GET &amp; POST) or a <a href="/schema">JSON object</a> (POST only). See syntax below.</td></tr>
   </table>
 
-  <h3>Query Syntax (<code>q</code> parameter)</h3>
+  <h3 id="query-syntax">Query Syntax (<code>q</code> parameter)</h3>
   <p>Filter events using <code>key:value</code> qualifiers. Space-separated qualifiers are AND'd. Use <code>OR</code> for alternatives. Parentheses group expressions.</p>
   <table>
     <tr><th>Key</th><th>Value</th><th>Example</th></tr>
@@ -112,7 +112,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><td><code>topic</code></td><td>XDR-JSON ScVal object</td><td><code>topic:{"symbol":"transfer"}</code></td></tr>
     <tr><td><code>topic0</code>…<code>topic3</code></td><td>XDR-JSON ScVal object</td><td><code>topic0:{"symbol":"transfer"}</code></td></tr>
   </table>
-  <h3>Examples</h3>
+  <h3 id="examples">Examples</h3>
   <ul class="example-list">
     <li>
       <div class="example-desc">All contract events from a ledger</div>
@@ -141,7 +141,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     </li>
   </ul>
 
-  <h3>JSON Query Syntax (POST only)</h3>
+  <h3 id="json-query-syntax">JSON Query Syntax (POST only)</h3>
   <p>In POST requests, <code>q</code> can also be a structured JSON object. The format uses <code>and</code>/<code>or</code> nodes and single-key qualifier objects. See the <a href="/schema">JSON Schema</a>.</p>
   <table>
     <tr><th>String syntax</th><th>JSON syntax</th></tr>
@@ -151,7 +151,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><td><code>(type:contract OR type:system) contract:CCW67...</code></td><td><code>{"and":[{"or":[{"type":"contract"},{"type":"system"}]},{"contract":"CCW67..."}]}</code></td></tr>
   </table>
 
-  <h3>Query Limits</h3>
+  <h3 id="query-limits">Query Limits</h3>
   <table>
     <tr><th>Limit</th><th>Value</th></tr>
     <tr><td>Max query length</td><td>1,024 bytes</td></tr>
@@ -160,7 +160,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><td>Max filter combinations after expansion</td><td>20</td></tr>
   </table>
 
-  <h3>Response</h3>
+  <h3 id="response">Response</h3>
   <pre>{
   "object": "list",
   "url": "/events?...",
@@ -181,7 +181,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   ]
 }</pre>
 
-  <h3>Pagination</h3>
+  <h3 id="pagination">Pagination</h3>
   <p>Results are always returned in <strong>descending order</strong> (newest first). Use the <code>before</code> and <code>after</code> cursors to page through events.</p>
 
   <p><strong>Browsing history</strong> &mdash; page backward through older events:</p>
@@ -199,7 +199,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <li>Any events created since your last seen <code>id</code> are returned, newest first.</li>
   </ol>
 
-  <h3>Try it</h3>
+  <h3 id="try-it">Try it</h3>
   <div class="tabs" data-group="events-list">
     <button class="tab active" data-tab="latest">Latest</button>
     <button class="tab" data-tab="bytype">By type</button>
@@ -408,7 +408,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 
   <p>Returns a single event object. The <code>:id</code> is the opaque event ID from list responses (e.g. <code>evt_yGrddDfumfmdgBDNdtycxRy</code>).</p>
 
-  <h3>Response</h3>
+  <h3 id="event-response">Response</h3>
   <pre>{
   "object": "event",
   "id": "evt_yGrddDfumfmdgBDNdtycxRy",
@@ -422,7 +422,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   "data": {"i128": {"hi": 0, "lo": 1000000}}
 }</pre>
 
-  <h3>Try it</h3>
+  <h3 id="event-try-it">Try it</h3>
   <div class="request-get" id="req-get-getbyid">
     <textarea class="request-area" rows="1">/events/evt_yGrddDfumfmdgBDNdtycxRy</textarea>
   </div>
@@ -448,7 +448,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   </summary>
   <div class="endpoint-body">
 
-  <h3>Response</h3>
+  <h3 id="health-response">Response</h3>
   <pre>{
   "status": "ok",
   "latest_ledger": 12345,
@@ -456,7 +456,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   "network_passphrase": "..."
 }</pre>
 
-  <h3>Try it</h3>
+  <h3 id="health-try-it">Try it</h3>
   <div class="request-get" id="req-get-health">
     <textarea class="request-area" rows="1">/health</textarea>
   </div>
