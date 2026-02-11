@@ -504,6 +504,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   document.querySelectorAll('.request-area').forEach(function(ta) {
     autoResize(ta);
     ta.addEventListener('input', function() { autoResize(ta); });
+    ta.addEventListener('paste', function() { setTimeout(function() { autoResize(ta); }, 0); });
   });
 
   // By-query panel: sync query input to path/body/curl
@@ -524,6 +525,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     buildCurl('byquery');
   }
   queryInput.addEventListener('input', updateByQueryPanel);
+  queryInput.addEventListener('paste', function() { setTimeout(updateByQueryPanel, 0); });
 
   // "try it" links in examples → prefill By query panel
   document.querySelectorAll('.try-it-link').forEach(function(link) {
@@ -557,8 +559,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 
   // Rebuild curl when textarea changes
   document.querySelectorAll('.request-area').forEach(function(ta) {
-    ta.addEventListener('input', function() {
-      // Find panel ID from closest parent with an id like req-get-<panel> or by looking at response area
+    function rebuildForTA() {
       var parent = ta.closest('.tab-panel') || ta.closest('.endpoint-body');
       if (!parent) return;
       var respArea = parent.querySelector('.response-area');
@@ -566,7 +567,9 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
         var panelId = respArea.id.replace('resp-', '');
         buildCurl(panelId);
       }
-    });
+    }
+    ta.addEventListener('input', rebuildForTA);
+    ta.addEventListener('paste', function() { setTimeout(rebuildForTA, 0); });
   });
 
   // Tabs (scoped to tab groups)
@@ -579,7 +582,9 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       var container = tabGroup.parentElement;
       container.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
       btn.classList.add('active');
-      container.querySelector('#panel-' + btn.dataset.tab).classList.add('active');
+      var activePanel = container.querySelector('#panel-' + btn.dataset.tab);
+      activePanel.classList.add('active');
+      activePanel.querySelectorAll('.request-area').forEach(autoResize);
     });
   });
 
@@ -597,11 +602,22 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       if (method === 'GET') {
         getEl.style.display = '';
         postEl.style.display = 'none';
+        getEl.querySelectorAll('.request-area').forEach(autoResize);
       } else {
         getEl.style.display = 'none';
         postEl.style.display = '';
+        postEl.querySelectorAll('.request-area').forEach(autoResize);
       }
       buildCurl(panel);
+    });
+  });
+
+  // Resize textareas when a collapsed <details> is opened.
+  document.querySelectorAll('details').forEach(function(d) {
+    d.addEventListener('toggle', function() {
+      if (d.open) {
+        d.querySelectorAll('.request-area').forEach(autoResize);
+      }
     });
   });
 
