@@ -3,7 +3,7 @@
 # Deploy with: fly deploy --config fly.staging.toml
 #
 
-app = 'stellar-events-api-search'
+app = 'stellar-events-api-search-queries'
 primary_region = 'iad'
 
 [build]
