@@ -265,11 +265,7 @@ async fn test_default_limit() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param("ledger:1000")
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param("ledger:1000")))
         .send()
         .await
         .unwrap();
@@ -305,11 +301,7 @@ async fn test_ledger_filter() {
 
     // ledger:100 returns all 5 events (all on ledger 100)
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param("ledger:100")
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param("ledger:100")))
         .send()
         .await
         .unwrap();
@@ -329,11 +321,7 @@ async fn test_ledger_filter_no_match() {
 
     // ledger:999 returns no events (no data on that ledger)
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param("ledger:999")
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param("ledger:999")))
         .send()
         .await
         .unwrap();
@@ -511,11 +499,7 @@ async fn test_default_returns_descending_order() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param("ledger:1000")
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param("ledger:1000")))
         .send()
         .await
         .unwrap();
@@ -543,11 +527,7 @@ async fn test_before_cursor_paginates_backward() {
 
     // Get all events to know their IDs (returned desc).
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param("ledger:1000")
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param("ledger:1000")))
         .send()
         .await
         .unwrap();
@@ -635,11 +615,7 @@ async fn test_after_cursor_returns_newer_events_in_desc() {
 
     // Get all events to know their IDs (returned desc).
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param("ledger:1000")
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param("ledger:1000")))
         .send()
         .await
         .unwrap();
@@ -801,7 +777,9 @@ async fn test_q_filter_by_contract() {
         .get(format!(
             "{}/events?q={}",
             base_url,
-            q_param("ledger:100 contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+            q_param(
+                "ledger:100 contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            )
         ))
         .send()
         .await
@@ -874,11 +852,7 @@ async fn test_q_filter_or_logic() {
     // Two OR groups: CA with transfer OR CB with transfer
     let q = r#"(ledger:100 contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA topic0:{"symbol":"transfer"}) OR (ledger:100 contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB topic0:{"symbol":"transfer"})"#;
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param(q)
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param(q)))
         .send()
         .await
         .unwrap();
@@ -898,11 +872,7 @@ async fn test_q_filter_and_logic() {
     // Single AND group: contract CA AND type contract AND topic[0] = mint
     let q = r#"ledger:100 contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA type:contract topic0:{"symbol":"mint"}"#;
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param(q)
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param(q)))
         .send()
         .await
         .unwrap();
@@ -924,10 +894,7 @@ async fn test_q_filter_combined_with_pagination() {
 
     // First page: limit=1
     let resp = client
-        .get(format!(
-            "{}/events?limit=1&q={}",
-            base_url, qp
-        ))
+        .get(format!("{}/events?limit=1&q={}", base_url, qp))
         .send()
         .await
         .unwrap();
@@ -985,11 +952,7 @@ async fn test_q_filter_paren_group() {
 
     let q = r#"ledger:100 (contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA OR contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB) topic0:{"symbol":"transfer"}"#;
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param(q)
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param(q)))
         .send()
         .await
         .unwrap();
@@ -1006,11 +969,7 @@ async fn test_q_filter_invalid_syntax() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param("foo:bar")
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param("foo:bar")))
         .send()
         .await
         .unwrap();
@@ -1053,11 +1012,7 @@ async fn test_no_q_returns_all() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param("ledger:100")
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param("ledger:100")))
         .send()
         .await
         .unwrap();
@@ -1203,11 +1158,7 @@ async fn test_q_filter_no_match() {
     // CB has no mint event
     let q = r#"ledger:100 contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB topic0:{"symbol":"mint"}"#;
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param(q)
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param(q)))
         .send()
         .await
         .unwrap();
@@ -1316,11 +1267,7 @@ async fn test_q_ledger_invalid_value() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!(
-            "{}/events?q={}",
-            base_url,
-            q_param("ledger:abc")
-        ))
+        .get(format!("{}/events?q={}", base_url, q_param("ledger:abc")))
         .send()
         .await
         .unwrap();

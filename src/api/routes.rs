@@ -374,4 +374,3 @@ pub async fn get_event(
 
     Ok(PrettyJson(event))
 }
-
