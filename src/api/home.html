@@ -66,6 +66,8 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 .example-list li{margin-bottom:10px}
 .example-list .example-desc{font-size:13px;color:#8b949e;margin-bottom:4px}
 .example-list pre{margin:0;padding:10px 14px;font-size:13px;white-space:pre-wrap;word-break:break-all}
+.query-input-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.request-area[readonly]{background:#0d1117;color:#8b949e;cursor:default}
 </style>
 </head>
 <body>
@@ -186,6 +188,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <button class="tab" data-tab="bytopics">By topics</button>
     <button class="tab" data-tab="bycontract">By contract</button>
     <button class="tab" data-tab="byledger">By ledger</button>
+    <button class="tab" data-tab="byquery">By query</button>
     <button class="tab" data-tab="pagination">Pagination</button>
   </div>
 
@@ -313,6 +316,35 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     </div>
     <button class="submit-btn" data-panel="byledger">Submit<span class="spinner"></span></button>
     <div class="response-area" id="resp-byledger">
+      <div class="response-label">Response<span class="response-time"></span></div>
+      <pre>Click Submit to send a request.</pre>
+    </div>
+  </div>
+
+  <!-- By query -->
+  <div class="tab-panel" id="panel-byquery">
+    <div class="toggle-row">
+      <button class="toggle-btn active" data-method="GET" data-panel="byquery">GET</button>
+      <button class="toggle-btn" data-method="POST" data-panel="byquery">POST</button>
+    </div>
+    <div class="query-input-label">Query (<code>q</code>)</div>
+    <textarea class="request-area" id="query-input" rows="2" placeholder="type:contract topic0:{&quot;symbol&quot;:&quot;transfer&quot;}">type:contract</textarea>
+    <div class="request-get" id="req-get-byquery">
+      <div class="query-input-label" style="margin-top:10px">Path</div>
+      <textarea class="request-area" rows="1" readonly>/events?q=type%3Acontract</textarea>
+    </div>
+    <div class="request-post" id="req-post-byquery" style="display:none">
+      <div class="query-input-label" style="margin-top:10px">Body</div>
+      <textarea class="request-area" rows="3" readonly>{
+  "q": "type:contract"
+}</textarea>
+    </div>
+    <div class="curl-area" id="curl-byquery">
+      <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+      <pre></pre>
+    </div>
+    <button class="submit-btn" data-panel="byquery">Submit<span class="spinner"></span></button>
+    <div class="response-area" id="resp-byquery">
       <div class="response-label">Response<span class="response-time"></span></div>
       <pre>Click Submit to send a request.</pre>
     </div>
@@ -451,8 +483,25 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   }
 
   // Build curl for all panels on load
-  var panels = ['latest','bytype','bytopics','bycontract','byledger','pagination','getbyid','health'];
+  var panels = ['latest','bytype','bytopics','bycontract','byledger','byquery','pagination','getbyid','health'];
   panels.forEach(buildCurl);
+
+  // By-query panel: sync query input to path/body/curl
+  var queryInput = document.getElementById('query-input');
+  function updateByQueryPanel() {
+    var q = queryInput.value.trim();
+    var getTA = document.querySelector('#req-get-byquery .request-area');
+    var postTA = document.querySelector('#req-post-byquery .request-area');
+    if (q) {
+      getTA.value = '/events?q=' + encodeURIComponent(q);
+      postTA.value = JSON.stringify({ q: q }, null, 2);
+    } else {
+      getTA.value = '/events';
+      postTA.value = '{}';
+    }
+    buildCurl('byquery');
+  }
+  queryInput.addEventListener('input', updateByQueryPanel);
 
   // Copy curl on click
   document.querySelectorAll('.curl-area pre').forEach(function(pre) {
