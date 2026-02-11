@@ -882,10 +882,7 @@ async fn test_before_cursor_paginates_backward() {
     // Use the 3rd event (middle) as `before` cursor with limit=2.
     // Should return events older than all_ids[2], in desc order.
     let resp = client
-        .get(format!(
-            "{}/events?before={}&limit=2",
-            base_url, all_ids[2]
-        ))
+        .get(format!("{}/events?before={}&limit=2", base_url, all_ids[2]))
         .send()
         .await
         .unwrap();
@@ -969,10 +966,7 @@ async fn test_after_cursor_returns_newer_events_in_desc() {
     // Use the oldest event as `after` cursor with limit=3.
     // Should return events newer than all_ids[4], in desc order.
     let resp = client
-        .get(format!(
-            "{}/events?after={}&limit=3",
-            base_url, all_ids[4]
-        ))
+        .get(format!("{}/events?after={}&limit=3", base_url, all_ids[4]))
         .send()
         .await
         .unwrap();
@@ -1004,10 +998,7 @@ async fn test_after_and_before_together_returns_400() {
     let id1 = data[1]["id"].as_str().unwrap();
 
     let resp = client
-        .get(format!(
-            "{}/events?after={}&before={}",
-            base_url, id0, id1
-        ))
+        .get(format!("{}/events?after={}&before={}", base_url, id0, id1))
         .send()
         .await
         .unwrap();
