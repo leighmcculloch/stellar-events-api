@@ -11,7 +11,9 @@ jobs:
     name: Deploy app
     runs-on: ubuntu-latest
     concurrency: deploy-${{ github.head_ref || github.ref_name }}
-    environment: ${{ github.head_ref || github.ref_name }}
+    environment:
+      name: ${{ github.head_ref || github.ref_name }}
+      url: ${{ steps.app.outputs.url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,6 +31,12 @@ jobs:
           fi
       - uses: superfly/flyctl-actions/setup-flyctl@master
         if: steps.check.outputs.found == 'true'
+      - name: Get app URL
+        id: app
+        if: steps.check.outputs.found == 'true'
+        run: |
+          APP=$(flyctl config show --config "${{ steps.check.outputs.config }}" | jq -r '.app')
+          echo "url=https://${APP}.fly.dev" >> "$GITHUB_OUTPUT"
       - name: Deploy to Fly.io
         if: steps.check.outputs.found == 'true'
         run: |
