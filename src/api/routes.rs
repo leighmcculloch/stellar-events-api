@@ -157,7 +157,7 @@ async fn backfill_ledger(state: &AppState, ledger_seq: u32) {
                 tracing::warn!(ledger = ledger_seq, error = %e, "backfill_ledger: failed to record cache");
             }
         }
-        Err(e) if matches!(e, crate::Error::LedgerNotFound(_)) => {}
+        Err(crate::Error::LedgerNotFound(_)) => {}
         Err(e) => {
             tracing::warn!(ledger = ledger_seq, error = %e, "backfill_ledger: failed to fetch ledger");
         }
@@ -210,7 +210,7 @@ async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
                     tracing::warn!(ledger = seq, error = %e, "backfill: failed to record cache");
                 }
             }
-            Err(e) if matches!(e, crate::Error::LedgerNotFound(_)) => {
+            Err(crate::Error::LedgerNotFound(_)) => {
                 // Ledger doesn't exist in S3 — skip
             }
             Err(e) => {

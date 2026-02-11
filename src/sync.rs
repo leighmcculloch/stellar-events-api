@@ -131,7 +131,7 @@ pub async fn run_sync(
                     total_events += event_count;
                     consecutive_failures = 0;
                 }
-                Err(e) if matches!(e, crate::Error::LedgerNotFound(_)) => {
+                Err(crate::Error::LedgerNotFound(_)) => {
                     tracing::debug!(ledger = seq, "ledger not yet available, waiting");
                     should_sleep = Some(SleepReason::NotFound);
                     break;
