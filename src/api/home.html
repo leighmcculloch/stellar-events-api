@@ -62,6 +62,10 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 .spinner{display:none;width:16px;height:16px;border:2px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:spin .6s linear infinite;margin-left:8px;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 .filter-table td{vertical-align:top}
+.example-list{list-style:none;padding:0;margin:8px 0 16px}
+.example-list li{margin-bottom:10px}
+.example-list .example-desc{font-size:13px;color:#8b949e;margin-bottom:4px}
+.example-list pre{margin:0;padding:10px 14px;font-size:13px}
 </style>
 </head>
 <body>
@@ -103,7 +107,29 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><td><code>topic</code></td><td>XDR-JSON ScVal object</td><td><code>topic:{"symbol":"transfer"}</code></td></tr>
     <tr><td><code>topic0</code>…<code>topic3</code></td><td>XDR-JSON ScVal object</td><td><code>topic0:{"symbol":"transfer"}</code></td></tr>
   </table>
-  <p><strong>Examples:</strong> <code>type:contract topic0:{"symbol":"transfer"}</code> &mdash; <code>(contract:CA... OR contract:CB...) topic0:{"symbol":"transfer"}</code></p>
+  <h3>Examples</h3>
+  <ul class="example-list">
+    <li>
+      <div class="example-desc">All contract events from a ledger</div>
+      <pre>ledger:58000000 type:contract</pre>
+    </li>
+    <li>
+      <div class="example-desc">Transfer events for a contract</div>
+      <pre>contract:CBN3Y5KABXEF2VDO7HNNT43TXSNL3KWTJC2HQY4ENVVRSRXFJJBFNKSM topic0:{"symbol":"transfer"}</pre>
+    </li>
+    <li>
+      <div class="example-desc">Events from a specific transaction</div>
+      <pre>ledger:58000000 tx:7758a34695323011e177c932cb899f3ea55c5af4d95c954e946ddddaafca0296</pre>
+    </li>
+    <li>
+      <div class="example-desc">Transfer, mint, clawback, and burn events for XLM and USDC</div>
+      <pre>(contract:CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA OR contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75) (topic0:{"symbol":"transfer"} OR topic0:{"symbol":"mint"} OR topic0:{"symbol":"clawback"} OR topic0:{"symbol":"burn"})</pre>
+    </li>
+    <li>
+      <div class="example-desc">Events where a specific address appears in any topic position</div>
+      <pre>contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 topic:{"address":"GABC..."}</pre>
+    </li>
+  </ul>
 
   <h3>Query Limits</h3>
   <table>
