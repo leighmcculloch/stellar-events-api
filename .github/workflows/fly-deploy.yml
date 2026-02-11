@@ -10,7 +10,9 @@ jobs:
   deploy:
     name: Deploy app
     runs-on: ubuntu-latest
-    concurrency: deploy-${{ github.head_ref || github.ref_name }}
+    concurrency:
+      group: deploy-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: true
     environment:
       name: ${{ github.head_ref || github.ref_name }}
       url: ${{ steps.app.outputs.url }}
