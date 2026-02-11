@@ -46,7 +46,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 .toggle-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
 .toggle-btn{padding:4px 12px;font-size:13px;font-weight:600;border:1px solid #30363d;background:#21262d;color:#8b949e;cursor:pointer;border-radius:4px;font-family:"SF Mono",Consolas,monospace;transition:all .15s}
 .toggle-btn.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
-.request-area{width:100%;min-height:60px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-family:"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;font-size:13px;padding:12px;resize:vertical;line-height:1.5}
+.request-area{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-family:"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;font-size:13px;padding:12px;resize:none;overflow:hidden;line-height:1.5}
 .submit-btn{margin-top:10px;padding:6px 20px;font-size:14px;font-weight:600;background:#238636;color:#fff;border:1px solid #2ea04366;border-radius:6px;cursor:pointer;transition:background .15s}
 .submit-btn:hover{background:#2ea043}
 .submit-btn:disabled{opacity:.5;cursor:not-allowed}
@@ -490,9 +490,21 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     }
   }
 
+  // Auto-resize a textarea to fit its content.
+  function autoResize(ta) {
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+  }
+
   // Build curl for all panels on load
   var panels = ['latest','bytype','bytopics','bycontract','byledger','byquery','pagination','getbyid','health'];
   panels.forEach(buildCurl);
+
+  // Size all textareas on load and auto-resize on input.
+  document.querySelectorAll('.request-area').forEach(function(ta) {
+    autoResize(ta);
+    ta.addEventListener('input', function() { autoResize(ta); });
+  });
 
   // By-query panel: sync query input to path/body/curl
   var queryInput = document.getElementById('query-input');
@@ -507,6 +519,8 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       getTA.value = '/events';
       postTA.value = '{}';
     }
+    autoResize(getTA);
+    autoResize(postTA);
     buildCurl('byquery');
   }
   queryInput.addEventListener('input', updateByQueryPanel);
@@ -517,6 +531,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       e.preventDefault();
       var query = link.nextElementSibling.textContent;
       queryInput.value = query;
+      autoResize(queryInput);
       updateByQueryPanel();
       // Switch to the "By query" tab
       var tabGroup = document.querySelector('.tabs[data-group="events-list"]');
