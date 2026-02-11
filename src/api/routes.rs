@@ -59,6 +59,8 @@ pub struct ListEventsRequest {
     tx: Option<String>,
     #[serde(default)]
     filters: Vec<EventFilter>,
+    #[serde(default)]
+    q: Option<String>,
 }
 
 /// GET /events
@@ -85,13 +87,30 @@ pub async fn list_events_get(
 
     let tx = multi.get("tx").and_then(|v| v.first()).cloned();
 
-    // Structured filters (JSON-encoded array)
-    let filters: Vec<EventFilter> = match multi.get("filters").and_then(|v| v.first()) {
-        Some(json_str) => serde_json::from_str(json_str).map_err(|e| ApiError::BadRequest {
-            message: format!("invalid filters JSON: {}", e),
-            param: Some("filters".to_string()),
-        })?,
-        None => Vec::new(),
+    let q = multi.get("q").and_then(|v| v.first()).cloned();
+
+    // Mutual exclusion: q and filters cannot both be provided.
+    let filters: Vec<EventFilter> = match (q.as_ref(), multi.get("filters")) {
+        (Some(_), Some(_)) => {
+            return Err(ApiError::BadRequest {
+                message: "filters and q cannot both be provided".to_string(),
+                param: Some("q".to_string()),
+            })
+        }
+        (Some(q_str), None) => {
+            super::query_parser::parse_query(q_str).map_err(|e| ApiError::BadRequest {
+                message: format!("invalid q parameter: {}", e.message),
+                param: Some("q".to_string()),
+            })?
+        }
+        (None, Some(filter_values)) => match filter_values.first() {
+            Some(json_str) => serde_json::from_str(json_str).map_err(|e| ApiError::BadRequest {
+                message: format!("invalid filters JSON: {}", e),
+                param: Some("filters".to_string()),
+            })?,
+            None => Vec::new(),
+        },
+        (None, None) => Vec::new(),
     };
 
     let req = ListEventsRequest {
@@ -101,6 +120,7 @@ pub async fn list_events_get(
         ledger,
         tx,
         filters,
+        q: None,
     };
 
     list_events(state, req).await
@@ -263,8 +283,25 @@ async fn list_events(
         });
     }
 
+    // Handle q parameter (for POST path; GET resolves q before calling list_events).
+    let filters = match (req.q.as_ref(), req.filters.is_empty()) {
+        (Some(_), false) => {
+            return Err(ApiError::BadRequest {
+                message: "filters and q cannot both be provided".to_string(),
+                param: Some("q".to_string()),
+            });
+        }
+        (Some(q_str), true) => {
+            super::query_parser::parse_query(q_str).map_err(|e| ApiError::BadRequest {
+                message: format!("invalid q parameter: {}", e.message),
+                param: Some("q".to_string()),
+            })?
+        }
+        (None, _) => req.filters,
+    };
+
     // Validate event types within filters
-    for filter in &req.filters {
+    for filter in &filters {
         if let Some(ref t) = filter.event_type {
             t.parse::<EventType>().map_err(|e| ApiError::BadRequest {
                 message: e,
@@ -292,7 +329,7 @@ async fn list_events(
         before,
         ledger: req.ledger,
         tx: req.tx,
-        filters: req.filters,
+        filters,
     };
 
     let result = state

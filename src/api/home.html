@@ -91,15 +91,28 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><td><code>before</code></td><td>string</td><td>Return events older than this cursor (event <code>id</code>). Use the <code>next</code> field from a previous response to paginate.</td></tr>
     <tr><td><code>ledger</code></td><td>integer</td><td>Only return events from this ledger sequence</td></tr>
     <tr><td><code>tx</code></td><td>string</td><td>Limit to events from this transaction hash (requires <code>ledger</code>)</td></tr>
-    <tr><td><code>filters</code></td><td>JSON string / array</td><td>Filter objects (see below). GET accepts a JSON-encoded string; POST accepts an array.</td></tr>
+    <tr><td><code>q</code></td><td>string</td><td>Filter query string (see syntax below). Cannot be combined with <code>filters</code>.</td></tr>
+    <tr><td><code>filters</code></td><td>JSON string / array</td><td>Filter objects (legacy). Cannot be combined with <code>q</code>.</td></tr>
   </table>
 
-  <h3>Filter Object</h3>
+  <h3>Query Syntax (<code>q</code> parameter)</h3>
+  <p>Filter events using <code>key:value</code> qualifiers. Space-separated qualifiers are AND'd. Use <code>OR</code> for alternatives. Parentheses group expressions.</p>
   <table>
-    <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-    <tr><td><code>type</code></td><td>string</td><td><code>"contract"</code> or <code>"system"</code></td></tr>
-    <tr><td><code>contract</code></td><td>string</td><td>Stellar contract strkey (C…)</td></tr>
-    <tr><td><code>topics</code></td><td>array</td><td>Positional topic matching. Each element is an XDR-JSON ScVal or <code>null</code> (wildcard)</td></tr>
+    <tr><th>Key</th><th>Value</th><th>Example</th></tr>
+    <tr><td><code>type</code></td><td><code>contract</code>, <code>system</code>, or <code>diagnostic</code></td><td><code>type:contract</code></td></tr>
+    <tr><td><code>contract</code></td><td>Stellar contract strkey (C…)</td><td><code>contract:CCW67...</code></td></tr>
+    <tr><td><code>topic</code></td><td>XDR-JSON ScVal object</td><td><code>topic:{"symbol":"transfer"}</code></td></tr>
+    <tr><td><code>topic0</code>…<code>topic3</code></td><td>XDR-JSON ScVal object</td><td><code>topic0:{"symbol":"transfer"}</code></td></tr>
+  </table>
+  <p><strong>Examples:</strong> <code>type:contract topic0:{"symbol":"transfer"}</code> &mdash; <code>(contract:CA... OR contract:CB...) topic0:{"symbol":"transfer"}</code></p>
+
+  <h3>Query Limits</h3>
+  <table>
+    <tr><th>Limit</th><th>Value</th></tr>
+    <tr><td>Max query length</td><td>1,024 bytes</td></tr>
+    <tr><td>Max terms (key:value pairs)</td><td>20</td></tr>
+    <tr><td>Max parenthesis nesting depth</td><td>4</td></tr>
+    <tr><td>Max filter combinations after expansion</td><td>20</td></tr>
   </table>
 
   <h3>Response</h3>
@@ -183,14 +196,12 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       <button class="toggle-btn" data-method="POST" data-panel="bytype">POST</button>
     </div>
     <div class="request-get" id="req-get-bytype">
-      <textarea class="request-area" rows="1">/events?limit=5&filters=[{"type":"contract"}]</textarea>
+      <textarea class="request-area" rows="1">/events?limit=5&q=type:contract</textarea>
     </div>
     <div class="request-post" id="req-post-bytype" style="display:none">
-      <textarea class="request-area" rows="6">{
+      <textarea class="request-area" rows="4">{
   "limit": 5,
-  "filters": [
-    { "type": "contract" }
-  ]
+  "q": "type:contract"
 }</textarea>
     </div>
     <div class="curl-area" id="curl-bytype">
@@ -211,17 +222,12 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       <button class="toggle-btn" data-method="POST" data-panel="bytopics">POST</button>
     </div>
     <div class="request-get" id="req-get-bytopics">
-      <textarea class="request-area" rows="1">/events?limit=5&filters=[{"type":"contract","topics":[{"symbol":"transfer"}]}]</textarea>
+      <textarea class="request-area" rows="1">/events?limit=5&q=type:contract%20topic0:{"symbol":"transfer"}</textarea>
     </div>
     <div class="request-post" id="req-post-bytopics" style="display:none">
-      <textarea class="request-area" rows="8">{
+      <textarea class="request-area" rows="4">{
   "limit": 5,
-  "filters": [
-    {
-      "type": "contract",
-      "topics": [{"symbol": "transfer"}]
-    }
-  ]
+  "q": "type:contract topic0:{\"symbol\":\"transfer\"}"
 }</textarea>
     </div>
     <div class="curl-area" id="curl-bytopics">
@@ -242,14 +248,12 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       <button class="toggle-btn" data-method="POST" data-panel="bycontract">POST</button>
     </div>
     <div class="request-get" id="req-get-bycontract">
-      <textarea class="request-area" rows="1">/events?limit=5&filters=[{"contract":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI"}]</textarea>
+      <textarea class="request-area" rows="1">/events?limit=5&q=contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI</textarea>
     </div>
     <div class="request-post" id="req-post-bycontract" style="display:none">
-      <textarea class="request-area" rows="6">{
+      <textarea class="request-area" rows="4">{
   "limit": 5,
-  "filters": [
-    { "contract": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI" }
-  ]
+  "q": "contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI"
 }</textarea>
     </div>
     <div class="curl-area" id="curl-bycontract">

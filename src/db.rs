@@ -102,6 +102,18 @@ impl StoredEvent {
             }
         }
 
+        if let Some(ref any_topics) = filter.any_topics {
+            let stored = match self.topics.as_array() {
+                Some(v) => v,
+                None => return false,
+            };
+            for required in any_topics {
+                if !stored.iter().any(|actual| actual == required) {
+                    return false;
+                }
+            }
+        }
+
         true
     }
 }
@@ -608,6 +620,10 @@ pub struct EventFilter {
     /// non-wildcard position matches exactly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topics: Option<Vec<serde_json::Value>>,
+    /// Non-positional topic matching. Each element is an XDR-JSON ScVal that must
+    /// appear in at least one topic position. Multiple values are AND'd (all must match).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub any_topics: Option<Vec<serde_json::Value>>,
 }
 
 /// Parameters for querying events.

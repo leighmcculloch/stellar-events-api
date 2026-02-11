@@ -158,6 +158,10 @@ fn filters_param(filters: &serde_json::Value) -> String {
     urlencoding::encode(&filters.to_string()).to_string()
 }
 
+fn q_param(q: &str) -> String {
+    urlencoding::encode(q).to_string()
+}
+
 // --- Basic list and pagination ---
 
 #[tokio::test]
@@ -882,10 +886,7 @@ async fn test_before_cursor_paginates_backward() {
     // Use the 3rd event (middle) as `before` cursor with limit=2.
     // Should return events older than all_ids[2], in desc order.
     let resp = client
-        .get(format!(
-            "{}/events?before={}&limit=2",
-            base_url, all_ids[2]
-        ))
+        .get(format!("{}/events?before={}&limit=2", base_url, all_ids[2]))
         .send()
         .await
         .unwrap();
@@ -969,10 +970,7 @@ async fn test_after_cursor_returns_newer_events_in_desc() {
     // Use the oldest event as `after` cursor with limit=3.
     // Should return events newer than all_ids[4], in desc order.
     let resp = client
-        .get(format!(
-            "{}/events?after={}&limit=3",
-            base_url, all_ids[4]
-        ))
+        .get(format!("{}/events?after={}&limit=3", base_url, all_ids[4]))
         .send()
         .await
         .unwrap();
@@ -1004,10 +1002,7 @@ async fn test_after_and_before_together_returns_400() {
     let id1 = data[1]["id"].as_str().unwrap();
 
     let resp = client
-        .get(format!(
-            "{}/events?after={}&before={}",
-            base_url, id0, id1
-        ))
+        .get(format!("{}/events?after={}&before={}", base_url, id0, id1))
         .send()
         .await
         .unwrap();
@@ -1080,4 +1075,589 @@ async fn test_status_endpoint() {
     assert_eq!(body["status"], "ok");
     assert!(body["network_passphrase"].is_string());
     assert!(body["cached_ledgers"].is_number());
+}
+
+// --- q= filter tests ---
+
+#[tokio::test]
+async fn test_q_filter_by_type() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param("type:system")
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["type"], "system");
+}
+
+#[tokio::test]
+async fn test_q_filter_by_contract() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param("contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Events 0, 3, 4 are on contract CA
+    assert_eq!(data.len(), 3);
+    for evt in data {
+        assert_eq!(
+            evt["contract"],
+            "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_q_filter_by_topic() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(r#"topic0:{"symbol":"transfer"}"#)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Events 0 and 2 have {"symbol":"transfer"} at position 0
+    assert_eq!(data.len(), 2);
+}
+
+#[tokio::test]
+async fn test_q_filter_topic_with_wildcard() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // topic0 = transfer, topic1 = wildcard (gap), topic2 = GDEF
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(r#"topic0:{"symbol":"transfer"} topic2:{"address":"GDEF"}"#)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Only event 0 matches (transfer, GABC, GDEF)
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["topics"][2]["address"], "GDEF");
+}
+
+#[tokio::test]
+async fn test_q_filter_or_logic() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // Two OR groups: CA with transfer OR CB with transfer
+    let q = r#"(contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA topic0:{"symbol":"transfer"}) OR (contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB topic0:{"symbol":"transfer"})"#;
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(q)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Event 0 (CA transfer) and event 2 (CB transfer)
+    assert_eq!(data.len(), 2);
+}
+
+#[tokio::test]
+async fn test_q_filter_and_logic() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // Single AND group: contract CA AND type contract AND topic[0] = mint
+    let q = r#"contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA type:contract topic0:{"symbol":"mint"}"#;
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(q)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Only event 3 matches
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["ledger"], 100);
+}
+
+#[tokio::test]
+async fn test_q_filter_combined_with_pagination() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let qp = q_param("type:contract");
+
+    // First page: limit=1
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&limit=1&q={}",
+            base_url, qp
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 1);
+    let first_id = data[0]["id"].as_str().unwrap().to_string();
+
+    // Second page using before cursor
+    let next_cursor = body["next"].as_str().unwrap();
+    let resp = client
+        .get(format!(
+            "{}/events?limit=1&before={}&q={}",
+            base_url, next_cursor, qp
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 1);
+    // Must be a different event
+    assert_ne!(data[0]["id"].as_str().unwrap(), first_id);
+}
+
+#[tokio::test]
+async fn test_q_filter_combined_with_ledger() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(r#"topic0:{"symbol":"transfer"}"#)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Events 0 and 2 have {"symbol":"transfer"} topic
+    assert_eq!(data.len(), 2);
+}
+
+#[tokio::test]
+async fn test_q_filter_paren_group() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let q = r#"(contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA OR contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB) topic0:{"symbol":"transfer"}"#;
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(q)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Events 0 and 2 (transfer on CA or CB)
+    assert_eq!(data.len(), 2);
+}
+
+#[tokio::test]
+async fn test_q_filter_invalid_syntax() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("foo:bar")
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"]["type"], "invalid_request_error");
+    assert_eq!(body["error"]["code"], "invalid_parameter");
+    assert_eq!(body["error"]["param"], "q");
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("unknown key"));
+}
+
+#[tokio::test]
+async fn test_q_filter_post_json() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "ledger": 100,
+            "q": "type:system"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["type"], "system");
+}
+
+#[tokio::test]
+async fn test_no_q_returns_all() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{}/events?ledger=100", base_url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["data"].as_array().unwrap().len(), 5);
+}
+
+#[tokio::test]
+async fn test_q_and_filters_conflict() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let f = serde_json::json!([{"type": "system"}]);
+    let resp = client
+        .get(format!(
+            "{}/events?q={}&filters={}",
+            base_url,
+            q_param("type:contract"),
+            filters_param(&f)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("filters and q cannot both be provided"));
+    assert_eq!(body["error"]["param"], "q");
+}
+
+#[tokio::test]
+async fn test_q_and_filters_conflict_post() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": "type:contract",
+            "filters": [{"type": "system"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("filters and q cannot both be provided"));
+}
+
+#[tokio::test]
+async fn test_q_filter_url_encoded() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // Manually URL-encode: type:contract topic0:{"symbol":"transfer"}
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q=type%3Acontract%20topic0%3A%7B%22symbol%22%3A%22transfer%22%7D",
+            base_url
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Events 0 and 2 are contract type with transfer topic
+    assert_eq!(data.len(), 2);
+}
+
+#[tokio::test]
+async fn test_q_filter_empty_value() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{}/events?q=", base_url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"]["param"], "q");
+}
+
+#[tokio::test]
+async fn test_q_filter_diagnostic() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param("type:diagnostic")
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["type"], "diagnostic");
+}
+
+#[tokio::test]
+async fn test_q_filter_topic_gap() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // topic0=transfer, topic1=wildcard, topic2=GDDD -> event 2
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(r#"topic0:{"symbol":"transfer"} topic2:{"address":"GDDD"}"#)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["topics"][2]["address"], "GDDD");
+}
+
+#[tokio::test]
+async fn test_q_filter_three_way_or() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param("type:contract OR type:system OR type:diagnostic")
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // All 5 events match one of the three types
+    assert_eq!(data.len(), 5);
+}
+
+#[tokio::test]
+async fn test_q_filter_parse_error_format() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("(type:contract")
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(body.get("error").is_some());
+    let error = &body["error"];
+    assert_eq!(error["type"], "invalid_request_error");
+    assert_eq!(error["param"], "q");
+    assert!(error.get("message").is_some());
+    assert!(error.get("code").is_some());
+}
+
+#[tokio::test]
+async fn test_q_filter_no_match() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // CB has no mint event
+    let q = r#"contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB topic0:{"symbol":"mint"}"#;
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(q)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["data"].as_array().unwrap().len(), 0);
+}
+
+// --- topic (any position) integration tests ---
+
+#[tokio::test]
+async fn test_q_filter_topic_any_position() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // topic:{"address":"GABC"} should match events that have GABC in any topic position.
+    // Event 0 has GABC at topic1, Event 3 has GABC at topic1.
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(r#"topic:{"address":"GABC"}"#)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 2);
+}
+
+#[tokio::test]
+async fn test_q_filter_topic_any_with_type() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // topic:{"symbol":"transfer"} matches events 0 and 2 (both have transfer at topic0).
+    // Adding type:contract should still match both (both are contract type).
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(r#"type:contract topic:{"symbol":"transfer"}"#)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 2);
+}
+
+#[tokio::test]
+async fn test_q_filter_topic_any_multiple_and() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // topic:{"symbol":"transfer"} AND topic:{"address":"GABC"} — both must be present.
+    // Event 0 has [transfer, GABC, GDEF] — matches.
+    // Event 2 has [transfer, GCCC, GDDD] — no GABC, doesn't match.
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(r#"topic:{"symbol":"transfer"} topic:{"address":"GABC"}"#)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 1);
+}
+
+#[tokio::test]
+async fn test_q_filter_topic_any_no_match() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/events?ledger=100&q={}",
+            base_url,
+            q_param(r#"topic:{"symbol":"nonexistent"}"#)
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["data"].as_array().unwrap().len(), 0);
 }

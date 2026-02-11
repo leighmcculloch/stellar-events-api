@@ -1,4 +1,5 @@
 pub mod error;
+pub mod query_parser;
 pub mod routes;
 pub mod types;
 
