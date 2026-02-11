@@ -840,6 +840,289 @@ fn and_group_to_filter(
     })
 }
 
+/// Parse a JSON query value into a Vec<EventFilter>.
+///
+/// The JSON format mirrors the string query syntax as a tree of `and`, `or`,
+/// and qualifier nodes. Only supported in POST requests.
+///
+/// Examples:
+///   {"type": "contract"}
+///   {"and": [{"type": "contract"}, {"contract": "C..."}]}
+///   {"or": [{"type": "contract"}, {"type": "system"}]}
+pub fn parse_json_query(value: serde_json::Value) -> Result<Vec<EventFilter>, QueryParseError> {
+    let expr = parse_json_expr(&value, 0, &mut 0)?;
+
+    let dnf = to_dnf(expr);
+    let and_groups = flatten_or(dnf);
+
+    if and_groups.len() > MAX_FILTERS {
+        return Err(QueryParseError {
+            kind: QueryParseErrorKind::TooManyFilters,
+            message: format!(
+                "query expands to {} filters, maximum is {}",
+                and_groups.len(),
+                MAX_FILTERS,
+            ),
+            position: 0,
+        });
+    }
+
+    let mut filters = Vec::with_capacity(and_groups.len());
+    for group in and_groups {
+        filters.push(and_group_to_filter(group)?);
+    }
+
+    Ok(filters)
+}
+
+fn parse_json_expr(
+    value: &serde_json::Value,
+    depth: usize,
+    term_count: &mut usize,
+) -> Result<QueryExpr, QueryParseError> {
+    let obj = value.as_object().ok_or_else(|| QueryParseError {
+        kind: QueryParseErrorKind::InvalidValue,
+        message: "expected a JSON object".to_string(),
+        position: 0,
+    })?;
+
+    if obj.is_empty() {
+        return Err(QueryParseError {
+            kind: QueryParseErrorKind::EmptyQuery,
+            message: "empty JSON object".to_string(),
+            position: 0,
+        });
+    }
+
+    if obj.len() > 1 {
+        return Err(QueryParseError {
+            kind: QueryParseErrorKind::InvalidValue,
+            message: "each JSON node must have exactly one key (use \"and\" or \"or\" to combine qualifiers)".to_string(),
+            position: 0,
+        });
+    }
+
+    let (key, val) = obj.iter().next().unwrap();
+
+    match key.as_str() {
+        "and" => {
+            if depth >= MAX_NESTING_DEPTH {
+                return Err(QueryParseError {
+                    kind: QueryParseErrorKind::NestingTooDeep,
+                    message: format!(
+                        "query exceeds maximum nesting depth of {}",
+                        MAX_NESTING_DEPTH
+                    ),
+                    position: 0,
+                });
+            }
+            let arr = val.as_array().ok_or_else(|| QueryParseError {
+                kind: QueryParseErrorKind::InvalidValue,
+                message: "\"and\" value must be an array".to_string(),
+                position: 0,
+            })?;
+            if arr.is_empty() {
+                return Err(QueryParseError {
+                    kind: QueryParseErrorKind::EmptyQuery,
+                    message: "\"and\" array must not be empty".to_string(),
+                    position: 0,
+                });
+            }
+            let children: Vec<QueryExpr> = arr
+                .iter()
+                .map(|child| parse_json_expr(child, depth + 1, term_count))
+                .collect::<Result<_, _>>()?;
+            Ok(QueryExpr::And(children))
+        }
+        "or" => {
+            if depth >= MAX_NESTING_DEPTH {
+                return Err(QueryParseError {
+                    kind: QueryParseErrorKind::NestingTooDeep,
+                    message: format!(
+                        "query exceeds maximum nesting depth of {}",
+                        MAX_NESTING_DEPTH
+                    ),
+                    position: 0,
+                });
+            }
+            let arr = val.as_array().ok_or_else(|| QueryParseError {
+                kind: QueryParseErrorKind::InvalidValue,
+                message: "\"or\" value must be an array".to_string(),
+                position: 0,
+            })?;
+            if arr.is_empty() {
+                return Err(QueryParseError {
+                    kind: QueryParseErrorKind::EmptyQuery,
+                    message: "\"or\" array must not be empty".to_string(),
+                    position: 0,
+                });
+            }
+            let children: Vec<QueryExpr> = arr
+                .iter()
+                .map(|child| parse_json_expr(child, depth + 1, term_count))
+                .collect::<Result<_, _>>()?;
+            Ok(QueryExpr::Or(children))
+        }
+        k if VALID_KEYS.contains(&k) => {
+            *term_count += 1;
+            if *term_count > MAX_QUERY_TERMS {
+                return Err(QueryParseError {
+                    kind: QueryParseErrorKind::TooManyTerms,
+                    message: format!("query exceeds maximum of {} terms", MAX_QUERY_TERMS),
+                    position: 0,
+                });
+            }
+            let value_str = json_qualifier_value_to_string(k, val)?;
+            Ok(QueryExpr::Qualifier {
+                key: k.to_string(),
+                value: value_str,
+                position: 0,
+            })
+        }
+        _ => Err(QueryParseError {
+            kind: QueryParseErrorKind::UnknownKey,
+            message: format!(
+                "unknown key '{}' (expected: type, contract, topic, topic0..topic3, ledger, tx, and, or)",
+                key
+            ),
+            position: 0,
+        }),
+    }
+}
+
+/// Convert a JSON qualifier value to the string representation used internally.
+fn json_qualifier_value_to_string(
+    key: &str,
+    val: &serde_json::Value,
+) -> Result<String, QueryParseError> {
+    match key {
+        "type" | "contract" | "tx" => {
+            val.as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| QueryParseError {
+                    kind: QueryParseErrorKind::InvalidValue,
+                    message: format!("value for '{}' must be a string", key),
+                    position: 0,
+                })
+        }
+        "ledger" => {
+            if let Some(n) = val.as_u64() {
+                Ok(n.to_string())
+            } else if let Some(n) = val.as_i64() {
+                if n >= 0 {
+                    Ok(n.to_string())
+                } else {
+                    Err(QueryParseError {
+                        kind: QueryParseErrorKind::InvalidValue,
+                        message: "value for 'ledger' must be a positive integer".to_string(),
+                        position: 0,
+                    })
+                }
+            } else {
+                Err(QueryParseError {
+                    kind: QueryParseErrorKind::InvalidValue,
+                    message: "value for 'ledger' must be an integer".to_string(),
+                    position: 0,
+                })
+            }
+        }
+        "topic" | "topic0" | "topic1" | "topic2" | "topic3" => {
+            // Topic values are JSON objects/values — serialize to compact string.
+            Ok(serde_json::to_string(val).unwrap_or_default())
+        }
+        _ => unreachable!("key validated before calling this function"),
+    }
+}
+
+/// Convert a `Vec<EventFilter>` (DNF) to the JSON tree format.
+pub fn filters_to_json(filters: &[EventFilter]) -> serde_json::Value {
+    let groups: Vec<serde_json::Value> = filters.iter().map(filter_to_json_node).collect();
+    match groups.len() {
+        0 => serde_json::Value::Object(serde_json::Map::new()),
+        1 => groups.into_iter().next().unwrap(),
+        _ => serde_json::json!({ "or": groups }),
+    }
+}
+
+fn filter_to_json_node(filter: &EventFilter) -> serde_json::Value {
+    let mut qualifiers: Vec<serde_json::Value> = Vec::new();
+
+    if let Some(ref et) = filter.event_type {
+        qualifiers.push(serde_json::json!({ "type": et }));
+    }
+    if let Some(ref cid) = filter.contract_id {
+        qualifiers.push(serde_json::json!({ "contract": cid }));
+    }
+    if let Some(ledger) = filter.ledger {
+        qualifiers.push(serde_json::json!({ "ledger": ledger }));
+    }
+    if let Some(ref tx) = filter.tx {
+        qualifiers.push(serde_json::json!({ "tx": tx }));
+    }
+    if let Some(ref topics) = filter.topics {
+        for (i, topic) in topics.iter().enumerate() {
+            if topic.is_null() {
+                continue;
+            }
+            let key = format!("topic{}", i);
+            qualifiers.push(serde_json::json!({ key: topic }));
+        }
+    }
+    if let Some(ref any_topics) = filter.any_topics {
+        for topic in any_topics {
+            qualifiers.push(serde_json::json!({ "topic": topic }));
+        }
+    }
+
+    match qualifiers.len() {
+        0 => serde_json::Value::Object(serde_json::Map::new()),
+        1 => qualifiers.into_iter().next().unwrap(),
+        _ => serde_json::json!({ "and": qualifiers }),
+    }
+}
+
+/// Convert a `Vec<EventFilter>` to the string query format.
+pub fn filters_to_query_string(filters: &[EventFilter]) -> String {
+    let groups: Vec<String> = filters.iter().map(filter_to_query_group).collect();
+    groups.join(" OR ")
+}
+
+fn filter_to_query_group(filter: &EventFilter) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    if let Some(ref et) = filter.event_type {
+        parts.push(format!("type:{}", et));
+    }
+    if let Some(ref cid) = filter.contract_id {
+        parts.push(format!("contract:{}", cid));
+    }
+    if let Some(ledger) = filter.ledger {
+        parts.push(format!("ledger:{}", ledger));
+    }
+    if let Some(ref tx) = filter.tx {
+        parts.push(format!("tx:{}", tx));
+    }
+    if let Some(ref topics) = filter.topics {
+        for (i, topic) in topics.iter().enumerate() {
+            if topic.is_null() {
+                continue;
+            }
+            parts.push(format!(
+                "topic{}:{}",
+                i,
+                serde_json::to_string(topic).unwrap()
+            ));
+        }
+    }
+    if let Some(ref any_topics) = filter.any_topics {
+        for topic in any_topics {
+            parts.push(format!("topic:{}", serde_json::to_string(topic).unwrap()));
+        }
+    }
+
+    parts.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1403,5 +1686,265 @@ mod tests {
         let q = "((((type:contract))))";
         let result = parse_query(q);
         assert!(result.is_ok());
+    }
+
+    // --- JSON query parsing tests ---
+
+    #[test]
+    fn test_parse_json_single_type() {
+        let filters = parse_json_query(json!({"type": "contract"})).unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].event_type.as_deref(), Some("contract"));
+    }
+
+    #[test]
+    fn test_parse_json_single_contract() {
+        let filters = parse_json_query(json!({"contract": CA})).unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].contract_id.as_deref(), Some(CA));
+    }
+
+    #[test]
+    fn test_parse_json_single_ledger() {
+        let filters = parse_json_query(json!({"ledger": 100})).unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].ledger, Some(100));
+    }
+
+    #[test]
+    fn test_parse_json_single_tx() {
+        let filters = parse_json_query(json!({"and": [{"ledger": 100}, {"tx": "abc"}]})).unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].ledger, Some(100));
+        assert_eq!(filters[0].tx.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn test_parse_json_single_topic0() {
+        let filters = parse_json_query(json!({"topic0": {"symbol": "transfer"}})).unwrap();
+        assert_eq!(filters.len(), 1);
+        let topics = filters[0].topics.as_ref().unwrap();
+        assert_eq!(topics[0], json!({"symbol": "transfer"}));
+    }
+
+    #[test]
+    fn test_parse_json_topic_any() {
+        let filters = parse_json_query(json!({"topic": {"symbol": "transfer"}})).unwrap();
+        assert_eq!(filters.len(), 1);
+        let any = filters[0].any_topics.as_ref().unwrap();
+        assert_eq!(any[0], json!({"symbol": "transfer"}));
+    }
+
+    #[test]
+    fn test_parse_json_and() {
+        let filters =
+            parse_json_query(json!({"and": [{"type": "contract"}, {"contract": CA}]})).unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].event_type.as_deref(), Some("contract"));
+        assert_eq!(filters[0].contract_id.as_deref(), Some(CA));
+    }
+
+    #[test]
+    fn test_parse_json_or() {
+        let filters =
+            parse_json_query(json!({"or": [{"type": "contract"}, {"type": "system"}]})).unwrap();
+        assert_eq!(filters.len(), 2);
+        assert_eq!(filters[0].event_type.as_deref(), Some("contract"));
+        assert_eq!(filters[1].event_type.as_deref(), Some("system"));
+    }
+
+    #[test]
+    fn test_parse_json_nested() {
+        let filters = parse_json_query(
+            json!({"and": [{"or": [{"type": "contract"}, {"type": "system"}]}, {"contract": CA}]}),
+        )
+        .unwrap();
+        assert_eq!(filters.len(), 2);
+        assert_eq!(filters[0].event_type.as_deref(), Some("contract"));
+        assert_eq!(filters[0].contract_id.as_deref(), Some(CA));
+        assert_eq!(filters[1].event_type.as_deref(), Some("system"));
+        assert_eq!(filters[1].contract_id.as_deref(), Some(CA));
+    }
+
+    #[test]
+    fn test_parse_json_invalid_type() {
+        let err = parse_json_query(json!({"type": "bogus"})).unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::InvalidValue);
+    }
+
+    #[test]
+    fn test_parse_json_unknown_key() {
+        let err = parse_json_query(json!({"foo": "bar"})).unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::UnknownKey);
+    }
+
+    #[test]
+    fn test_parse_json_multi_key() {
+        let err = parse_json_query(json!({"type": "contract", "contract": CA})).unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::InvalidValue);
+    }
+
+    #[test]
+    fn test_parse_json_tx_requires_ledger() {
+        let err = parse_json_query(json!({"tx": "abc"})).unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::InvalidValue);
+    }
+
+    #[test]
+    fn test_parse_json_empty_object() {
+        let err = parse_json_query(json!({})).unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::EmptyQuery);
+    }
+
+    #[test]
+    fn test_parse_json_not_object() {
+        let err = parse_json_query(json!("type:contract")).unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::InvalidValue);
+    }
+
+    #[test]
+    fn test_parse_json_ledger_string_value() {
+        let err = parse_json_query(json!({"ledger": "abc"})).unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::InvalidValue);
+    }
+
+    #[test]
+    fn test_parse_json_type_non_string() {
+        let err = parse_json_query(json!({"type": 42})).unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::InvalidValue);
+    }
+
+    // --- filters_to_json tests ---
+
+    #[test]
+    fn test_filters_to_json_single_type() {
+        let filters = vec![EventFilter {
+            event_type: Some("contract".to_string()),
+            ..Default::default()
+        }];
+        let j = filters_to_json(&filters);
+        assert_eq!(j, json!({"type": "contract"}));
+    }
+
+    #[test]
+    fn test_filters_to_json_and() {
+        let filters = vec![EventFilter {
+            event_type: Some("contract".to_string()),
+            contract_id: Some(CA.to_string()),
+            ..Default::default()
+        }];
+        let j = filters_to_json(&filters);
+        assert_eq!(j, json!({"and": [{"type": "contract"}, {"contract": CA}]}));
+    }
+
+    #[test]
+    fn test_filters_to_json_or() {
+        let filters = vec![
+            EventFilter {
+                event_type: Some("contract".to_string()),
+                ..Default::default()
+            },
+            EventFilter {
+                event_type: Some("system".to_string()),
+                ..Default::default()
+            },
+        ];
+        let j = filters_to_json(&filters);
+        assert_eq!(j, json!({"or": [{"type": "contract"}, {"type": "system"}]}));
+    }
+
+    #[test]
+    fn test_filters_to_json_topics() {
+        let filters = vec![EventFilter {
+            topics: Some(vec![
+                json!({"symbol": "transfer"}),
+                serde_json::Value::Null,
+                json!({"address": "GDEF"}),
+            ]),
+            ..Default::default()
+        }];
+        let j = filters_to_json(&filters);
+        assert_eq!(
+            j,
+            json!({"and": [{"topic0": {"symbol": "transfer"}}, {"topic2": {"address": "GDEF"}}]})
+        );
+    }
+
+    #[test]
+    fn test_filters_to_json_empty() {
+        let j = filters_to_json(&[]);
+        assert_eq!(j, json!({}));
+    }
+
+    // --- filters_to_query_string tests ---
+
+    #[test]
+    fn test_filters_to_query_string_single() {
+        let filters = vec![EventFilter {
+            event_type: Some("contract".to_string()),
+            ..Default::default()
+        }];
+        assert_eq!(filters_to_query_string(&filters), "type:contract");
+    }
+
+    #[test]
+    fn test_filters_to_query_string_and() {
+        let filters = vec![EventFilter {
+            event_type: Some("contract".to_string()),
+            contract_id: Some(CA.to_string()),
+            ..Default::default()
+        }];
+        let s = filters_to_query_string(&filters);
+        assert_eq!(s, format!("type:contract contract:{}", CA));
+    }
+
+    #[test]
+    fn test_filters_to_query_string_or() {
+        let filters = vec![
+            EventFilter {
+                event_type: Some("contract".to_string()),
+                ..Default::default()
+            },
+            EventFilter {
+                event_type: Some("system".to_string()),
+                ..Default::default()
+            },
+        ];
+        let s = filters_to_query_string(&filters);
+        assert_eq!(s, "type:contract OR type:system");
+    }
+
+    // --- Roundtrip tests ---
+
+    #[test]
+    fn test_roundtrip_string_json() {
+        let input = &format!(
+            r#"(type:contract OR type:system) contract:{} topic0:{{"symbol":"transfer"}}"#,
+            CA
+        );
+        let filters1 = parse_query(input).unwrap();
+        let j = filters_to_json(&filters1);
+        let filters2 = parse_json_query(j).unwrap();
+        assert_eq!(filters1.len(), filters2.len());
+        for (f1, f2) in filters1.iter().zip(filters2.iter()) {
+            assert_eq!(f1.event_type, f2.event_type);
+            assert_eq!(f1.contract_id, f2.contract_id);
+            assert_eq!(f1.topics, f2.topics);
+            assert_eq!(f1.ledger, f2.ledger);
+            assert_eq!(f1.tx, f2.tx);
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_json_string() {
+        let j = json!({"and": [{"type": "contract"}, {"contract": CA}]});
+        let filters1 = parse_json_query(j).unwrap();
+        let s = filters_to_query_string(&filters1);
+        let filters2 = parse_query(&s).unwrap();
+        assert_eq!(filters1.len(), filters2.len());
+        for (f1, f2) in filters1.iter().zip(filters2.iter()) {
+            assert_eq!(f1.event_type, f2.event_type);
+            assert_eq!(f1.contract_id, f2.contract_id);
+        }
     }
 }

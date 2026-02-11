@@ -59,7 +59,7 @@ pub struct ListEventsRequest {
     #[serde(default)]
     before: Option<String>,
     #[serde(default)]
-    q: Option<String>,
+    q: Option<serde_json::Value>,
 }
 
 /// GET /events
@@ -81,7 +81,10 @@ pub async fn list_events_get(
 
     let after = multi.get("after").and_then(|v| v.first()).cloned();
     let before = multi.get("before").and_then(|v| v.first()).cloned();
-    let q = multi.get("q").and_then(|v| v.first()).cloned();
+    let q = multi
+        .get("q")
+        .and_then(|v| v.first())
+        .map(|v| serde_json::Value::String(v.to_string()));
 
     let req = ListEventsRequest {
         limit,
@@ -424,14 +427,22 @@ async fn list_events(
     };
 
     // Parse q parameter into filters.
-    let filters = match req.q.as_ref() {
-        Some(q_str) => {
-            super::query_parser::parse_query(q_str).map_err(|e| ApiError::BadRequest {
+    let filters = match req.q {
+        Some(serde_json::Value::String(ref s)) => {
+            super::query_parser::parse_query(s).map_err(|e| ApiError::BadRequest {
                 message: format!("invalid q parameter: {}", e.message),
                 param: Some("q".to_string()),
             })?
         }
         None => Vec::new(),
+        Some(ref json_val) => {
+            super::query_parser::parse_json_query(json_val.clone()).map_err(|e| {
+                ApiError::BadRequest {
+                    message: format!("invalid q parameter: {}", e.message),
+                    param: Some("q".to_string()),
+                }
+            })?
+        }
     };
 
     let filter_ledger = filters.iter().find_map(|f| f.ledger);
@@ -512,6 +523,16 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoRespo
 
     Ok(PrettyJson(response))
 }
+
+/// GET /schema
+pub async fn schema() -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/schema+json")],
+        SCHEMA_JSON,
+    )
+}
+
+const SCHEMA_JSON: &str = include_str!("schema.json");
 
 /// GET /events/:id
 #[tracing::instrument(skip_all, fields(id = %id))]

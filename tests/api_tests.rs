@@ -1305,6 +1305,252 @@ async fn test_q_ledger_with_tx() {
     }
 }
 
+// --- POST JSON query tests ---
+
+#[tokio::test]
+async fn test_post_json_query_single() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": {"and": [{"ledger": 100}, {"type": "contract"}]}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Events 0, 2, 3 are contract type on ledger 100
+    assert_eq!(data.len(), 3);
+    for evt in data {
+        assert_eq!(evt["type"], "contract");
+    }
+}
+
+#[tokio::test]
+async fn test_post_json_query_and() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": {"and": [
+                {"ledger": 100},
+                {"type": "contract"},
+                {"contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+            ]}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Events 0 and 3 are contract type on contract CA
+    assert_eq!(data.len(), 2);
+    for evt in data {
+        assert_eq!(evt["type"], "contract");
+        assert_eq!(
+            evt["contract"],
+            "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_post_json_query_or() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": {"and": [
+                {"ledger": 100},
+                {"or": [{"type": "contract"}, {"type": "system"}]}
+            ]}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Events 0, 1, 2, 3 are contract or system (event 4 is diagnostic)
+    assert_eq!(data.len(), 4);
+}
+
+#[tokio::test]
+async fn test_post_json_query_nested() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": {"and": [
+                {"ledger": 100},
+                {"or": [{"type": "contract"}, {"type": "system"}]},
+                {"contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+            ]}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Only contract-type events on contract CA: events 0 and 3
+    // (system event 1 has no contract so doesn't match contract filter)
+    assert_eq!(data.len(), 2);
+}
+
+#[tokio::test]
+async fn test_post_json_query_invalid_type() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": {"type": "bogus"}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn test_post_json_query_tx_requires_ledger() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": {"tx": "abc"}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn test_post_json_query_unknown_key() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": {"foo": "bar"}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn test_post_json_query_multi_key() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": {"type": "contract", "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn test_post_json_query_topic() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": {"and": [
+                {"ledger": 100},
+                {"topic0": {"symbol": "transfer"}}
+            ]}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Events 0 and 2 have transfer at topic0
+    assert_eq!(data.len(), 2);
+}
+
+#[tokio::test]
+async fn test_post_json_query_string_still_works() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // String q in POST should still work
+    let resp = client
+        .post(format!("{}/events", base_url))
+        .json(&serde_json::json!({
+            "q": "ledger:100 type:system"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["type"], "system");
+}
+
+// --- Schema endpoint ---
+
+#[tokio::test]
+async fn test_schema_endpoint() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("{}/schema", base_url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "application/schema+json"
+    );
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(body.get("$schema").is_some());
+    assert!(body.get("$defs").is_some());
+    assert!(body["$defs"].get("QueryExpr").is_some());
+}
+
 // --- Cross-ledger progressive search tests ---
 
 /// Create test events spread across three ledgers (100, 101, 102), 2 events each.
