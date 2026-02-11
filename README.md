@@ -30,10 +30,7 @@ Returns a paginated list of contract events. Parameters can be passed as query s
 | `limit` | integer | Number of events to return (1-100, default 10) |
 | `after` | string | Return events newer than this cursor (event ID) |
 | `before` | string | Return events older than this cursor (event ID) |
-| `ledger` | integer | Return events from this ledger sequence |
-| `tx` | string | Limit results to events from this transaction hash |
-| `q` | string | Filter query string (see syntax below). Cannot be combined with `filters`. |
-| `filters` | array | Structured filters (legacy). Cannot be combined with `q`. |
+| `q` | string | Filter query string (see syntax below) |
 
 **Query syntax (`q` parameter):** Filter events using `key:value` qualifiers. Space-separated qualifiers are AND'd. Use `OR` for alternatives. Parentheses group expressions. AND binds tighter than OR.
 
@@ -41,6 +38,8 @@ Returns a paginated list of contract events. Parameters can be passed as query s
 |---|---|---|
 | `type` | `contract`, `system`, or `diagnostic` | `type:contract` |
 | `contract` | Stellar contract strkey (C...) | `contract:CCW67...` |
+| `ledger` | Ledger sequence number | `ledger:58000000` |
+| `tx` | Transaction hash (requires `ledger`) | `tx:abc123...` |
 | `topic` | XDR-JSON ScVal object | `topic:{"symbol":"transfer"}` |
 | `topic0`..`topic3` | XDR-JSON ScVal object | `topic0:{"symbol":"transfer"}` |
 
@@ -59,7 +58,7 @@ GET /events?q=(contract:CABC... OR contract:CXYZ...) type:contract topic0:{"symb
 | Max parenthesis nesting depth | 4 |
 | Max filter combinations after expansion | 20 |
 
-Results are always returned in descending order (newest first). If no `ledger` or cursor is provided, the API defaults to the latest ingested ledger.
+Results are always returned in descending order (newest first). If no `ledger` filter or cursor is provided, the API defaults to the latest ingested ledger.
 
 **Examples:**
 
@@ -72,19 +71,19 @@ curl 'http://localhost:3000/events'
 All events from ledger 58000000 onward:
 
 ```bash
-curl 'http://localhost:3000/events?ledger=58000000'
+curl 'http://localhost:3000/events?q=ledger:58000000'
 ```
 
 All events for the USDC contract:
 
 ```bash
-curl 'http://localhost:3000/events?ledger=58000000&q=contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75'
+curl 'http://localhost:3000/events?q=ledger:58000000%20contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75'
 ```
 
 Transfer events for the USDC contract:
 
 ```bash
-curl 'http://localhost:3000/events?ledger=58000000&q=contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75%20topic0:%7B%22symbol%22:%22transfer%22%7D'
+curl 'http://localhost:3000/events?q=ledger:58000000%20contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75%20topic0:%7B%22symbol%22:%22transfer%22%7D'
 ```
 
 Same query using POST with a JSON body:
@@ -93,8 +92,7 @@ Same query using POST with a JSON body:
 curl -X POST 'http://localhost:3000/events' \
   -H 'Content-Type: application/json' \
   -d '{
-    "ledger": 58000000,
-    "q": "contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 topic0:{\"symbol\":\"transfer\"}"
+    "q": "ledger:58000000 contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 topic0:{\"symbol\":\"transfer\"}"
   }'
 ```
 

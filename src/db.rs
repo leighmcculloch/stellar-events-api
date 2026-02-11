@@ -62,6 +62,18 @@ impl StoredEvent {
 
     /// Check whether this event matches a single filter (all conditions AND'd).
     fn matches_filter(&self, filter: &EventFilter) -> bool {
+        if let Some(ledger) = filter.ledger {
+            if self.ledger_sequence != ledger {
+                return false;
+            }
+        }
+
+        if let Some(ref tx) = filter.tx {
+            if self.tx_hash != *tx {
+                return false;
+            }
+        }
+
         if let Some(ref cid) = filter.contract_id {
             match &self.contract_id {
                 Some(eid) if eid == cid => {}
@@ -274,15 +286,18 @@ impl EventStore {
     /// - `after` cursor: selects events newer than the cursor, returned desc.
     /// - `before` cursor: selects events older than the cursor, returned desc.
     /// - No cursor: returns the most recent events.
-    #[tracing::instrument(skip_all, fields(limit = params.limit, ledger = params.ledger, filters = params.filters.len()))]
+    #[tracing::instrument(skip_all, fields(limit = params.limit, filters = params.filters.len()))]
     pub fn query_events(
         &self,
         params: &EventQueryParams,
     ) -> Result<EventQueryResult, crate::Error> {
         let cursor = params.after.as_ref().or(params.before.as_ref());
 
+        // Extract ledger from filters (all filters share the same ledger value).
+        let filter_ledger = params.filters.iter().find_map(|f| f.ledger);
+
         // Determine the pinned ledger.
-        let pinned_ledger = match (cursor, params.ledger) {
+        let pinned_ledger = match (cursor, filter_ledger) {
             (None, None) => {
                 // Auto-select the latest ledger.
                 let latest = self.latest_ledger.load(Ordering::Relaxed);
@@ -292,7 +307,7 @@ impl EventStore {
                     Some(latest)
                 }
             }
-            _ => params.ledger,
+            _ => filter_ledger,
         };
 
         // If we have a pinned ledger, query that single partition.
@@ -397,13 +412,8 @@ impl EventStore {
         }
     }
 
-    /// Check whether a single event passes the tx and filter constraints.
+    /// Check whether a single event passes the filter constraints.
     fn event_matches(&self, event: &StoredEvent, params: &EventQueryParams) -> bool {
-        if let Some(ref tx) = params.tx {
-            if event.tx_hash != *tx {
-                return false;
-            }
-        }
         if !params.filters.is_empty() && !params.filters.iter().any(|f| event.matches_filter(f)) {
             return false;
         }
@@ -624,6 +634,12 @@ pub struct EventFilter {
     /// appear in at least one topic position. Multiple values are AND'd (all must match).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub any_topics: Option<Vec<serde_json::Value>>,
+    /// Filter by ledger sequence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ledger: Option<u32>,
+    /// Filter by transaction hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tx: Option<String>,
 }
 
 /// Parameters for querying events.
@@ -632,9 +648,6 @@ pub struct EventQueryParams {
     pub limit: u32,
     pub after: Option<String>,
     pub before: Option<String>,
-    pub ledger: Option<u32>,
-    /// Filter all results to a single transaction hash.
-    pub tx: Option<String>,
     /// Structured filters. Each filter is OR'd; conditions within are AND'd.
     pub filters: Vec<EventFilter>,
 }

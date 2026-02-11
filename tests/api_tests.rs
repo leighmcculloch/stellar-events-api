@@ -64,7 +64,7 @@ fn make_test_events(count: usize, ledger: u32) -> Vec<ExtractedEvent> {
 }
 
 /// Create events with varied types, contracts, and XDR-JSON ScVal topics.
-/// All events are on ledger 100 so that `ledger=100` returns the full set.
+/// All events are on ledger 100 so that `q=ledger:100` returns the full set.
 fn make_multi_type_events() -> Vec<ExtractedEvent> {
     vec![
         // Event 0: transfer from addr_A to addr_B on contract CA
@@ -154,10 +154,6 @@ fn make_multi_type_events() -> Vec<ExtractedEvent> {
     ]
 }
 
-fn filters_param(filters: &serde_json::Value) -> String {
-    urlencoding::encode(&filters.to_string()).to_string()
-}
-
 fn q_param(q: &str) -> String {
     urlencoding::encode(q).to_string()
 }
@@ -190,7 +186,11 @@ async fn test_list_events_with_data() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/events?ledger=1000&limit=3", base_url))
+        .get(format!(
+            "{}/events?limit=3&q={}",
+            base_url,
+            q_param("ledger:1000")
+        ))
         .send()
         .await
         .unwrap();
@@ -218,7 +218,11 @@ async fn test_pagination_with_before() {
 
     // First page (newest first, no cursor)
     let resp = client
-        .get(format!("{}/events?ledger=1000&limit=2", base_url))
+        .get(format!(
+            "{}/events?limit=2&q={}",
+            base_url,
+            q_param("ledger:1000")
+        ))
         .send()
         .await
         .unwrap();
@@ -261,7 +265,11 @@ async fn test_default_limit() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/events?ledger=1000", base_url))
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("ledger:1000")
+        ))
         .send()
         .await
         .unwrap();
@@ -295,9 +303,13 @@ async fn test_ledger_filter() {
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    // ledger=100 returns all 5 events (all on ledger 100)
+    // ledger:100 returns all 5 events (all on ledger 100)
     let resp = client
-        .get(format!("{}/events?ledger=100", base_url))
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("ledger:100")
+        ))
         .send()
         .await
         .unwrap();
@@ -315,9 +327,13 @@ async fn test_ledger_filter_no_match() {
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    // ledger=999 returns no events (no data on that ledger)
+    // ledger:999 returns no events (no data on that ledger)
     let resp = client
-        .get(format!("{}/events?ledger=999", base_url))
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("ledger:999")
+        ))
         .send()
         .await
         .unwrap();
@@ -326,61 +342,7 @@ async fn test_ledger_filter_no_match() {
     assert_eq!(data.len(), 0);
 }
 
-// --- Structured filters ---
-
-#[tokio::test]
-async fn test_filter_by_contract_id() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    let f = serde_json::json!([{
-        "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-    }]);
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    // Events 0, 3, 4 are on contract CA
-    assert_eq!(data.len(), 3);
-    for evt in data {
-        assert_eq!(
-            evt["contract"],
-            "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        );
-    }
-}
-
-#[tokio::test]
-async fn test_filter_by_type() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    let f = serde_json::json!([{"type": "system"}]);
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0]["type"], "system");
-}
+// --- Tx hash filter ---
 
 #[tokio::test]
 async fn test_filter_by_tx_hash() {
@@ -390,7 +352,11 @@ async fn test_filter_by_tx_hash() {
 
     let tx_hash = "b".repeat(64);
     let resp = client
-        .get(format!("{}/events?ledger=100&tx={}", base_url, tx_hash))
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param(&format!("ledger:100 tx:{}", tx_hash))
+        ))
         .send()
         .await
         .unwrap();
@@ -407,256 +373,21 @@ async fn test_tx_without_ledger_returns_error() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/events?tx={}", base_url, "a".repeat(64)))
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param(&format!("tx:{}", "a".repeat(64)))
+        ))
         .send()
         .await
         .unwrap();
     assert_eq!(resp.status(), 400);
 
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["error"]["param"], "ledger");
-}
-
-#[tokio::test]
-async fn test_filter_by_topic_positional() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // Match events where topic[0] is {"symbol":"transfer"}
-    let f = serde_json::json!([{"topics": [{"symbol": "transfer"}]}]);
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    // Events 0 and 2 have {"symbol":"transfer"} at position 0
-    assert_eq!(data.len(), 2);
-}
-
-#[tokio::test]
-async fn test_filter_topic_with_wildcard() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // topic[0] = transfer, topic[1] = anything, topic[2] = GDEF
-    let f = serde_json::json!([{"topics": [{"symbol": "transfer"}, null, {"address": "GDEF"}]}]);
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    // Only event 0 matches (transfer, GABC, GDEF)
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0]["topics"][2]["address"], "GDEF");
-}
-
-#[tokio::test]
-async fn test_filter_topic_too_few_positions() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // No event has 4 topics
-    let f =
-        serde_json::json!([{"topics": [{"symbol": "transfer"}, null, null, {"symbol": "extra"}]}]);
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["data"].as_array().unwrap().len(), 0);
-}
-
-#[tokio::test]
-async fn test_filters_or_logic() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // Two filters OR'd: CA with transfer OR CB with transfer
-    let f = serde_json::json!([
-        {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            "topics": [{"symbol": "transfer"}]
-        },
-        {
-            "contract": "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-            "topics": [{"symbol": "transfer"}]
-        }
-    ]);
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    // Event 0 (CA transfer) and event 2 (CB transfer)
-    assert_eq!(data.len(), 2);
-}
-
-#[tokio::test]
-async fn test_filters_and_logic_within() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // Single filter: contract CA AND type contract AND topic[0] = mint
-    let f = serde_json::json!([{
-        "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        "type": "contract",
-        "topics": [{"symbol": "mint"}]
-    }]);
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    // Only event 3 matches
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0]["ledger"], 100);
-}
-
-#[tokio::test]
-async fn test_filters_combined_with_pagination() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // All contract-type events, paginate with limit=1
-    let f = serde_json::json!([{"type": "contract"}]);
-    let fp = filters_param(&f);
-
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&limit=1&filters={}",
-            base_url, fp
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    assert_eq!(data.len(), 1);
-
-    // Second page using before cursor
-    let next_cursor = body["next"].as_str().unwrap();
-    let resp = client
-        .get(format!(
-            "{}/events?limit=1&before={}&filters={}",
-            base_url, next_cursor, fp
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["data"].as_array().unwrap().len(), 1);
-}
-
-#[tokio::test]
-async fn test_filters_combined_with_ledger() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // transfer events on ledger 100
-    let f = serde_json::json!([{"topics": [{"symbol": "transfer"}]}]);
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    // Events 0 and 2 have {"symbol":"transfer"} topic
-    assert_eq!(data.len(), 2);
-}
-
-#[tokio::test]
-async fn test_filters_all_wildcards() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // All wildcards: matches events with >= 3 topics
-    let f = serde_json::json!([{"topics": [null, null, null]}]);
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    // Events 0 and 2 have 3 topics
-    assert_eq!(data.len(), 2);
-}
-
-#[tokio::test]
-async fn test_filters_empty_array() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    // Empty filters = no filter constraint, returns all from ledger
-    let f = serde_json::json!([]);
-    let resp = client
-        .get(format!(
-            "{}/events?ledger=100&filters={}",
-            base_url,
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["data"].as_array().unwrap().len(), 5);
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("ledger is required when tx is provided"));
 }
 
 // --- Validation and errors ---
@@ -698,39 +429,6 @@ async fn test_invalid_cursor() {
 }
 
 #[tokio::test]
-async fn test_filters_invalid_json() {
-    let base_url = start_test_server(vec![]).await;
-    let client = reqwest::Client::new();
-
-    let resp = client
-        .get(format!("{}/events?filters=not-valid-json", base_url))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 400);
-
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("invalid filters JSON"));
-}
-
-#[tokio::test]
-async fn test_filters_invalid_type() {
-    let base_url = start_test_server(vec![]).await;
-    let client = reqwest::Client::new();
-
-    let f = serde_json::json!([{"type": "bogus"}]);
-    let resp = client
-        .get(format!("{}/events?filters={}", base_url, filters_param(&f)))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 400);
-}
-
-#[tokio::test]
 async fn test_error_response_format() {
     let base_url = start_test_server(vec![]).await;
     let client = reqwest::Client::new();
@@ -761,7 +459,7 @@ async fn test_post_list_events() {
         .post(format!("{}/events", base_url))
         .json(&serde_json::json!({
             "limit": 2,
-            "ledger": 1000
+            "q": "ledger:1000"
         }))
         .send()
         .await
@@ -771,34 +469,6 @@ async fn test_post_list_events() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["object"], "list");
     assert_eq!(body["data"].as_array().unwrap().len(), 2);
-}
-
-#[tokio::test]
-async fn test_post_with_filters() {
-    let events = make_multi_type_events();
-    let base_url = start_test_server(events).await;
-    let client = reqwest::Client::new();
-
-    let resp = client
-        .post(format!("{}/events", base_url))
-        .json(&serde_json::json!({
-            "ledger": 100,
-            "filters": [{"contract": "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}]
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
-
-    let body: serde_json::Value = resp.json().await.unwrap();
-    let data = body["data"].as_array().unwrap();
-    assert!(data.len() > 0);
-    for event in data {
-        assert_eq!(
-            event["contract"],
-            "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-        );
-    }
 }
 
 #[tokio::test]
@@ -841,7 +511,11 @@ async fn test_default_returns_descending_order() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/events?ledger=1000", base_url))
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("ledger:1000")
+        ))
         .send()
         .await
         .unwrap();
@@ -869,7 +543,11 @@ async fn test_before_cursor_paginates_backward() {
 
     // Get all events to know their IDs (returned desc).
     let resp = client
-        .get(format!("{}/events?ledger=1000", base_url))
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("ledger:1000")
+        ))
         .send()
         .await
         .unwrap();
@@ -906,7 +584,11 @@ async fn test_before_cursor_pagination_continuation() {
 
     // First page: no cursor, limit=2 → newest 2 events.
     let resp = client
-        .get(format!("{}/events?ledger=1000&limit=2", base_url))
+        .get(format!(
+            "{}/events?limit=2&q={}",
+            base_url,
+            q_param("ledger:1000")
+        ))
         .send()
         .await
         .unwrap();
@@ -953,7 +635,11 @@ async fn test_after_cursor_returns_newer_events_in_desc() {
 
     // Get all events to know their IDs (returned desc).
     let resp = client
-        .get(format!("{}/events?ledger=1000", base_url))
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("ledger:1000")
+        ))
         .send()
         .await
         .unwrap();
@@ -992,7 +678,11 @@ async fn test_after_and_before_together_returns_400() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/events?ledger=1000&limit=2", base_url))
+        .get(format!(
+            "{}/events?limit=2&q={}",
+            base_url,
+            q_param("ledger:1000")
+        ))
         .send()
         .await
         .unwrap();
@@ -1087,9 +777,9 @@ async fn test_q_filter_by_type() {
 
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param("type:system")
+            q_param("ledger:100 type:system")
         ))
         .send()
         .await
@@ -1109,9 +799,9 @@ async fn test_q_filter_by_contract() {
 
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param("contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+            q_param("ledger:100 contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
         ))
         .send()
         .await
@@ -1137,9 +827,9 @@ async fn test_q_filter_by_topic() {
 
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param(r#"topic0:{"symbol":"transfer"}"#)
+            q_param(r#"ledger:100 topic0:{"symbol":"transfer"}"#)
         ))
         .send()
         .await
@@ -1160,9 +850,9 @@ async fn test_q_filter_topic_with_wildcard() {
     // topic0 = transfer, topic1 = wildcard (gap), topic2 = GDEF
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param(r#"topic0:{"symbol":"transfer"} topic2:{"address":"GDEF"}"#)
+            q_param(r#"ledger:100 topic0:{"symbol":"transfer"} topic2:{"address":"GDEF"}"#)
         ))
         .send()
         .await
@@ -1182,10 +872,10 @@ async fn test_q_filter_or_logic() {
     let client = reqwest::Client::new();
 
     // Two OR groups: CA with transfer OR CB with transfer
-    let q = r#"(contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA topic0:{"symbol":"transfer"}) OR (contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB topic0:{"symbol":"transfer"})"#;
+    let q = r#"(ledger:100 contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA topic0:{"symbol":"transfer"}) OR (ledger:100 contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB topic0:{"symbol":"transfer"})"#;
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
             q_param(q)
         ))
@@ -1206,10 +896,10 @@ async fn test_q_filter_and_logic() {
     let client = reqwest::Client::new();
 
     // Single AND group: contract CA AND type contract AND topic[0] = mint
-    let q = r#"contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA type:contract topic0:{"symbol":"mint"}"#;
+    let q = r#"ledger:100 contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA type:contract topic0:{"symbol":"mint"}"#;
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
             q_param(q)
         ))
@@ -1230,12 +920,12 @@ async fn test_q_filter_combined_with_pagination() {
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    let qp = q_param("type:contract");
+    let qp = q_param("ledger:100 type:contract");
 
     // First page: limit=1
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&limit=1&q={}",
+            "{}/events?limit=1&q={}",
             base_url, qp
         ))
         .send()
@@ -1273,9 +963,9 @@ async fn test_q_filter_combined_with_ledger() {
 
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param(r#"topic0:{"symbol":"transfer"}"#)
+            q_param(r#"ledger:100 topic0:{"symbol":"transfer"}"#)
         ))
         .send()
         .await
@@ -1293,10 +983,10 @@ async fn test_q_filter_paren_group() {
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    let q = r#"(contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA OR contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB) topic0:{"symbol":"transfer"}"#;
+    let q = r#"ledger:100 (contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA OR contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB) topic0:{"symbol":"transfer"}"#;
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
             q_param(q)
         ))
@@ -1344,8 +1034,7 @@ async fn test_q_filter_post_json() {
     let resp = client
         .post(format!("{}/events", base_url))
         .json(&serde_json::json!({
-            "ledger": 100,
-            "q": "type:system"
+            "q": "ledger:100 type:system"
         }))
         .send()
         .await
@@ -1364,7 +1053,11 @@ async fn test_no_q_returns_all() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/events?ledger=100", base_url))
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("ledger:100")
+        ))
         .send()
         .await
         .unwrap();
@@ -1374,62 +1067,15 @@ async fn test_no_q_returns_all() {
 }
 
 #[tokio::test]
-async fn test_q_and_filters_conflict() {
-    let base_url = start_test_server(vec![]).await;
-    let client = reqwest::Client::new();
-
-    let f = serde_json::json!([{"type": "system"}]);
-    let resp = client
-        .get(format!(
-            "{}/events?q={}&filters={}",
-            base_url,
-            q_param("type:contract"),
-            filters_param(&f)
-        ))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 400);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("filters and q cannot both be provided"));
-    assert_eq!(body["error"]["param"], "q");
-}
-
-#[tokio::test]
-async fn test_q_and_filters_conflict_post() {
-    let base_url = start_test_server(vec![]).await;
-    let client = reqwest::Client::new();
-
-    let resp = client
-        .post(format!("{}/events", base_url))
-        .json(&serde_json::json!({
-            "q": "type:contract",
-            "filters": [{"type": "system"}]
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 400);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("filters and q cannot both be provided"));
-}
-
-#[tokio::test]
 async fn test_q_filter_url_encoded() {
     let events = make_multi_type_events();
     let base_url = start_test_server(events).await;
     let client = reqwest::Client::new();
 
-    // Manually URL-encode: type:contract topic0:{"symbol":"transfer"}
+    // Manually URL-encode: ledger:100 type:contract topic0:{"symbol":"transfer"}
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q=type%3Acontract%20topic0%3A%7B%22symbol%22%3A%22transfer%22%7D",
+            "{}/events?q=ledger%3A100%20type%3Acontract%20topic0%3A%7B%22symbol%22%3A%22transfer%22%7D",
             base_url
         ))
         .send()
@@ -1465,9 +1111,9 @@ async fn test_q_filter_diagnostic() {
 
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param("type:diagnostic")
+            q_param("ledger:100 type:diagnostic")
         ))
         .send()
         .await
@@ -1488,9 +1134,9 @@ async fn test_q_filter_topic_gap() {
     // topic0=transfer, topic1=wildcard, topic2=GDDD -> event 2
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param(r#"topic0:{"symbol":"transfer"} topic2:{"address":"GDDD"}"#)
+            q_param(r#"ledger:100 topic0:{"symbol":"transfer"} topic2:{"address":"GDDD"}"#)
         ))
         .send()
         .await
@@ -1510,9 +1156,9 @@ async fn test_q_filter_three_way_or() {
 
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param("type:contract OR type:system OR type:diagnostic")
+            q_param("ledger:100 (type:contract OR type:system OR type:diagnostic)")
         ))
         .send()
         .await
@@ -1555,10 +1201,10 @@ async fn test_q_filter_no_match() {
     let client = reqwest::Client::new();
 
     // CB has no mint event
-    let q = r#"contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB topic0:{"symbol":"mint"}"#;
+    let q = r#"ledger:100 contract:CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB topic0:{"symbol":"mint"}"#;
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
             q_param(q)
         ))
@@ -1582,9 +1228,9 @@ async fn test_q_filter_topic_any_position() {
     // Event 0 has GABC at topic1, Event 3 has GABC at topic1.
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param(r#"topic:{"address":"GABC"}"#)
+            q_param(r#"ledger:100 topic:{"address":"GABC"}"#)
         ))
         .send()
         .await
@@ -1605,9 +1251,9 @@ async fn test_q_filter_topic_any_with_type() {
     // Adding type:contract should still match both (both are contract type).
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param(r#"type:contract topic:{"symbol":"transfer"}"#)
+            q_param(r#"ledger:100 type:contract topic:{"symbol":"transfer"}"#)
         ))
         .send()
         .await
@@ -1629,9 +1275,9 @@ async fn test_q_filter_topic_any_multiple_and() {
     // Event 2 has [transfer, GCCC, GDDD] — no GABC, doesn't match.
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param(r#"topic:{"symbol":"transfer"} topic:{"address":"GABC"}"#)
+            q_param(r#"ledger:100 topic:{"symbol":"transfer"} topic:{"address":"GABC"}"#)
         ))
         .send()
         .await
@@ -1650,9 +1296,9 @@ async fn test_q_filter_topic_any_no_match() {
 
     let resp = client
         .get(format!(
-            "{}/events?ledger=100&q={}",
+            "{}/events?q={}",
             base_url,
-            q_param(r#"topic:{"symbol":"nonexistent"}"#)
+            q_param(r#"ledger:100 topic:{"symbol":"nonexistent"}"#)
         ))
         .send()
         .await
@@ -1660,4 +1306,54 @@ async fn test_q_filter_topic_any_no_match() {
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["data"].as_array().unwrap().len(), 0);
+}
+
+// --- ledger: and tx: query parser tests ---
+
+#[tokio::test]
+async fn test_q_ledger_invalid_value() {
+    let base_url = start_test_server(vec![]).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("ledger:abc")
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("invalid value"));
+}
+
+#[tokio::test]
+async fn test_q_ledger_with_tx() {
+    let events = make_multi_type_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    let tx_hash = "a".repeat(64);
+    let resp = client
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param(&format!("ledger:100 tx:{}", tx_hash))
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    // Events 0 and 1 share tx_hash "aaa..."
+    assert_eq!(data.len(), 2);
+    for evt in data {
+        assert_eq!(evt["tx"], tx_hash);
+    }
 }

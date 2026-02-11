@@ -202,7 +202,7 @@ async fn test_cold_fetch_latency() {
 
         let start = std::time::Instant::now();
         let resp = client
-            .get(format!("{}/events?ledger=1000&limit=100", base_url))
+            .get(format!("{}/events?q=ledger%3A1000&limit=100", base_url))
             .send()
             .await
             .unwrap();
@@ -290,9 +290,10 @@ async fn test_cold_fetch_breakdown() {
             limit: 100,
             after: None,
             before: None,
-            ledger: Some(1000),
-            tx: None,
-            filters: vec![],
+            filters: vec![stellar_events_api::db::EventFilter {
+                ledger: Some(1000),
+                ..Default::default()
+            }],
         };
         let s = std::time::Instant::now();
         let result = store.query_events(&params).unwrap();

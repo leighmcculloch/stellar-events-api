@@ -89,10 +89,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><td><code>limit</code></td><td>integer</td><td>Number of events to return (1–100, default 10)</td></tr>
     <tr><td><code>after</code></td><td>string</td><td>Return events newer than this cursor (event <code>id</code>)</td></tr>
     <tr><td><code>before</code></td><td>string</td><td>Return events older than this cursor (event <code>id</code>). Use the <code>next</code> field from a previous response to paginate.</td></tr>
-    <tr><td><code>ledger</code></td><td>integer</td><td>Only return events from this ledger sequence</td></tr>
-    <tr><td><code>tx</code></td><td>string</td><td>Limit to events from this transaction hash (requires <code>ledger</code>)</td></tr>
-    <tr><td><code>q</code></td><td>string</td><td>Filter query string (see syntax below). Cannot be combined with <code>filters</code>.</td></tr>
-    <tr><td><code>filters</code></td><td>JSON string / array</td><td>Filter objects (legacy). Cannot be combined with <code>q</code>.</td></tr>
+    <tr><td><code>q</code></td><td>string</td><td>Filter query string (see syntax below)</td></tr>
   </table>
 
   <h3>Query Syntax (<code>q</code> parameter)</h3>
@@ -101,6 +98,8 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><th>Key</th><th>Value</th><th>Example</th></tr>
     <tr><td><code>type</code></td><td><code>contract</code>, <code>system</code>, or <code>diagnostic</code></td><td><code>type:contract</code></td></tr>
     <tr><td><code>contract</code></td><td>Stellar contract strkey (C…)</td><td><code>contract:CCW67...</code></td></tr>
+    <tr><td><code>ledger</code></td><td>Ledger sequence number</td><td><code>ledger:58000000</code></td></tr>
+    <tr><td><code>tx</code></td><td>Transaction hash (requires <code>ledger</code>)</td><td><code>tx:abc123...</code></td></tr>
     <tr><td><code>topic</code></td><td>XDR-JSON ScVal object</td><td><code>topic:{"symbol":"transfer"}</code></td></tr>
     <tr><td><code>topic0</code>…<code>topic3</code></td><td>XDR-JSON ScVal object</td><td><code>topic0:{"symbol":"transfer"}</code></td></tr>
   </table>
@@ -274,12 +273,12 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       <button class="toggle-btn" data-method="POST" data-panel="byledger">POST</button>
     </div>
     <div class="request-get" id="req-get-byledger">
-      <textarea class="request-area" rows="1">/events?limit=5&ledger=58000000</textarea>
+      <textarea class="request-area" rows="1">/events?limit=5&q=ledger:58000000</textarea>
     </div>
     <div class="request-post" id="req-post-byledger" style="display:none">
       <textarea class="request-area" rows="4">{
   "limit": 5,
-  "ledger": 58000000
+  "q": "ledger:58000000"
 }</textarea>
     </div>
     <div class="curl-area" id="curl-byledger">

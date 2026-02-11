@@ -143,7 +143,7 @@ struct Token {
 }
 
 const VALID_KEYS: &[&str] = &[
-    "type", "contract", "topic", "topic0", "topic1", "topic2", "topic3",
+    "type", "contract", "topic", "topic0", "topic1", "topic2", "topic3", "ledger", "tx",
 ];
 
 fn tokenize(input: &str) -> Result<Vec<Token>, QueryParseError> {
@@ -238,7 +238,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, QueryParseError> {
             return Err(QueryParseError {
                 kind: QueryParseErrorKind::UnknownKey,
                 message: format!(
-                    "unknown key '{}' (expected: type, contract, topic, topic0, topic1, topic2, topic3)",
+                    "unknown key '{}' (expected: type, contract, topic, topic0..topic3, ledger, tx)",
                     key
                 ),
                 position: key_start,
@@ -649,6 +649,8 @@ fn and_group_to_filter(
 ) -> Result<EventFilter, QueryParseError> {
     let mut event_type: Option<(String, usize)> = None;
     let mut contract_id: Option<(String, usize)> = None;
+    let mut ledger: Option<(u32, usize)> = None;
+    let mut tx: Option<(String, usize)> = None;
     let mut topics: [Option<(String, usize)>; 4] = [None, None, None, None];
     let mut any_topics: Vec<String> = Vec::new();
 
@@ -712,6 +714,47 @@ fn and_group_to_filter(
                 }
                 contract_id = Some((value, position));
             }
+            "ledger" => {
+                let parsed = value.parse::<u32>().map_err(|_| QueryParseError {
+                    kind: QueryParseErrorKind::InvalidValue,
+                    message: format!(
+                        "invalid value '{}' for key 'ledger' (expected a positive integer)",
+                        value
+                    ),
+                    position,
+                })?;
+
+                if let Some((existing, _)) = ledger {
+                    if existing == parsed {
+                        continue;
+                    }
+                    return Err(QueryParseError {
+                        kind: QueryParseErrorKind::ConflictingQualifiers,
+                        message: format!(
+                            "conflicting values for 'ledger': '{}' and '{}' (use OR to match multiple ledgers)",
+                            existing, parsed
+                        ),
+                        position,
+                    });
+                }
+                ledger = Some((parsed, position));
+            }
+            "tx" => {
+                if let Some((ref existing, _)) = tx {
+                    if *existing == value {
+                        continue;
+                    }
+                    return Err(QueryParseError {
+                        kind: QueryParseErrorKind::ConflictingQualifiers,
+                        message: format!(
+                            "conflicting values for 'tx': '{}' and '{}' (use OR to match multiple transactions)",
+                            existing, value
+                        ),
+                        position,
+                    });
+                }
+                tx = Some((value, position));
+            }
             topic_key @ ("topic0" | "topic1" | "topic2" | "topic3") => {
                 let idx: usize = topic_key[5..].parse().unwrap();
 
@@ -738,6 +781,17 @@ fn and_group_to_filter(
                 topics[idx] = Some((value, position));
             }
             _ => unreachable!("key validated during tokenization"),
+        }
+    }
+
+    // tx requires ledger
+    if let Some((_, pos)) = &tx {
+        if ledger.is_none() {
+            return Err(QueryParseError {
+                kind: QueryParseErrorKind::InvalidValue,
+                message: "ledger is required when tx is provided".to_string(),
+                position: *pos,
+            });
         }
     }
 
@@ -781,6 +835,8 @@ fn and_group_to_filter(
         contract_id: contract_id.map(|(v, _)| v),
         topics: topics_vec,
         any_topics: any_topics_vec,
+        ledger: ledger.map(|(v, _)| v),
+        tx: tx.map(|(v, _)| v),
     })
 }
 
@@ -1217,6 +1273,73 @@ mod tests {
     fn test_parse_topic_any_invalid_json() {
         let err = parse_query("topic:notjson").unwrap_err();
         assert_eq!(err.kind, QueryParseErrorKind::InvalidValue);
+    }
+
+    // --- ledger and tx tests ---
+
+    #[test]
+    fn test_parse_single_ledger() {
+        let filters = parse_query("ledger:58000000").unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].ledger, Some(58000000));
+    }
+
+    #[test]
+    fn test_parse_ledger_with_type() {
+        let filters = parse_query("ledger:100 type:contract").unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].ledger, Some(100));
+        assert_eq!(filters[0].event_type.as_deref(), Some("contract"));
+    }
+
+    #[test]
+    fn test_parse_ledger_invalid_value() {
+        let err = parse_query("ledger:abc").unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::InvalidValue);
+        assert!(err.message.contains("invalid value"));
+    }
+
+    #[test]
+    fn test_parse_ledger_conflicting() {
+        let err = parse_query("ledger:100 ledger:200").unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::ConflictingQualifiers);
+    }
+
+    #[test]
+    fn test_parse_ledger_duplicate_same_value() {
+        let filters = parse_query("ledger:100 ledger:100").unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].ledger, Some(100));
+    }
+
+    #[test]
+    fn test_parse_tx_with_ledger() {
+        let tx = "a".repeat(64);
+        let filters = parse_query(&format!("ledger:100 tx:{}", tx)).unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].ledger, Some(100));
+        assert_eq!(filters[0].tx.as_deref(), Some(tx.as_str()));
+    }
+
+    #[test]
+    fn test_parse_tx_without_ledger_error() {
+        let tx = "a".repeat(64);
+        let err = parse_query(&format!("tx:{}", tx)).unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::InvalidValue);
+        assert!(err.message.contains("ledger is required"));
+    }
+
+    #[test]
+    fn test_parse_tx_conflicting() {
+        let err = parse_query("ledger:100 tx:abc tx:def").unwrap_err();
+        assert_eq!(err.kind, QueryParseErrorKind::ConflictingQualifiers);
+    }
+
+    #[test]
+    fn test_parse_tx_duplicate_same_value() {
+        let filters = parse_query("ledger:100 tx:abc tx:abc").unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].tx.as_deref(), Some("abc"));
     }
 
     // --- Complexity limit tests ---

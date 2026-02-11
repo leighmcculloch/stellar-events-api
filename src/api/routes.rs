@@ -7,8 +7,7 @@ use axum::Json;
 
 use super::error::ApiError;
 use super::types::{BuildInfo, Event, ListResponse, PrettyJson, StatusResponse};
-use crate::db::{EventFilter, EventQueryParams};
-use crate::ledger::events::EventType;
+use crate::db::EventQueryParams;
 use crate::{sync, AppState};
 
 /// Maximum number of ledgers to backfill per request.
@@ -54,12 +53,6 @@ pub struct ListEventsRequest {
     #[serde(default)]
     before: Option<String>,
     #[serde(default)]
-    ledger: Option<u32>,
-    #[serde(default)]
-    tx: Option<String>,
-    #[serde(default)]
-    filters: Vec<EventFilter>,
-    #[serde(default)]
     q: Option<String>,
 }
 
@@ -82,45 +75,13 @@ pub async fn list_events_get(
 
     let after = multi.get("after").and_then(|v| v.first()).cloned();
     let before = multi.get("before").and_then(|v| v.first()).cloned();
-
-    let ledger = parse_u32_multi(&multi, "ledger")?;
-
-    let tx = multi.get("tx").and_then(|v| v.first()).cloned();
-
     let q = multi.get("q").and_then(|v| v.first()).cloned();
-
-    // Mutual exclusion: q and filters cannot both be provided.
-    let filters: Vec<EventFilter> = match (q.as_ref(), multi.get("filters")) {
-        (Some(_), Some(_)) => {
-            return Err(ApiError::BadRequest {
-                message: "filters and q cannot both be provided".to_string(),
-                param: Some("q".to_string()),
-            })
-        }
-        (Some(q_str), None) => {
-            super::query_parser::parse_query(q_str).map_err(|e| ApiError::BadRequest {
-                message: format!("invalid q parameter: {}", e.message),
-                param: Some("q".to_string()),
-            })?
-        }
-        (None, Some(filter_values)) => match filter_values.first() {
-            Some(json_str) => serde_json::from_str(json_str).map_err(|e| ApiError::BadRequest {
-                message: format!("invalid filters JSON: {}", e),
-                param: Some("filters".to_string()),
-            })?,
-            None => Vec::new(),
-        },
-        (None, None) => Vec::new(),
-    };
 
     let req = ListEventsRequest {
         limit,
         after,
         before,
-        ledger,
-        tx,
-        filters,
-        q: None,
+        q,
     };
 
     list_events(state, req).await
@@ -220,7 +181,7 @@ async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
     }
 }
 
-#[tracing::instrument(skip_all, fields(limit = req.limit, ledger = req.ledger, filters = req.filters.len()))]
+#[tracing::instrument(skip_all, fields(limit = req.limit))]
 async fn list_events(
     state: Arc<AppState>,
     req: ListEventsRequest,
@@ -275,45 +236,23 @@ async fn list_events(
         None
     };
 
-    // tx requires a ledger to scope the search
-    if req.tx.is_some() && req.ledger.is_none() {
-        return Err(ApiError::BadRequest {
-            message: "ledger is required when tx is provided".to_string(),
-            param: Some("ledger".to_string()),
-        });
-    }
-
-    // Handle q parameter (for POST path; GET resolves q before calling list_events).
-    let filters = match (req.q.as_ref(), req.filters.is_empty()) {
-        (Some(_), false) => {
-            return Err(ApiError::BadRequest {
-                message: "filters and q cannot both be provided".to_string(),
-                param: Some("q".to_string()),
-            });
-        }
-        (Some(q_str), true) => {
+    // Parse q parameter into filters.
+    let filters = match req.q.as_ref() {
+        Some(q_str) => {
             super::query_parser::parse_query(q_str).map_err(|e| ApiError::BadRequest {
                 message: format!("invalid q parameter: {}", e.message),
                 param: Some("q".to_string()),
             })?
         }
-        (None, _) => req.filters,
+        None => Vec::new(),
     };
 
-    // Validate event types within filters
-    for filter in &filters {
-        if let Some(ref t) = filter.event_type {
-            t.parse::<EventType>().map_err(|e| ApiError::BadRequest {
-                message: e,
-                param: Some("filters[].type".to_string()),
-            })?;
-        }
-    }
-
-    // Determine target ledger for on-demand backfill
+    // Determine target ledger for on-demand backfill.
+    // Extract ledger from filters (all filters share the same ledger value).
+    let filter_ledger = filters.iter().find_map(|f| f.ledger);
     let cursor_ref = after.as_ref().or(before.as_ref());
-    let target_ledger = if req.ledger.is_some() {
-        req.ledger
+    let target_ledger = if filter_ledger.is_some() {
+        filter_ledger
     } else if let Some(cursor) = cursor_ref {
         crate::ledger::event_id::parse_event_id(cursor).map(|(seq, _, _, _, _)| seq)
     } else {
@@ -327,8 +266,6 @@ async fn list_events(
         limit,
         after,
         before,
-        ledger: req.ledger,
-        tx: req.tx,
         filters,
     };
 
@@ -438,18 +375,3 @@ pub async fn get_event(
     Ok(PrettyJson(event))
 }
 
-fn parse_u32_multi(
-    params: &HashMap<String, Vec<String>>,
-    key: &str,
-) -> Result<Option<u32>, ApiError> {
-    match params.get(key).and_then(|v| v.first()) {
-        Some(v) => v
-            .parse::<u32>()
-            .map(Some)
-            .map_err(|_| ApiError::BadRequest {
-                message: format!("{} must be a positive integer", key),
-                param: Some(key.to_string()),
-            }),
-        None => Ok(None),
-    }
-}
