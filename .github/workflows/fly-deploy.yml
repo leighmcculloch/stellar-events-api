@@ -39,6 +39,8 @@ jobs:
         run: |
           APP=$(flyctl config show --config "${{ steps.check.outputs.config }}" | jq -r '.app')
           echo "url=https://${APP}.fly.dev" >> "$GITHUB_OUTPUT"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Deploy to Fly.io
         if: steps.check.outputs.found == 'true'
         run: |
