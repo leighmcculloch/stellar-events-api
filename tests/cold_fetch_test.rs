@@ -89,7 +89,7 @@ fn build_test_ledger_compressed(ledger_seq: u32, num_txs: usize, events_per_tx: 
         },
         tx_set_result_hash: Hash([0; 32]),
         bucket_list_hash: Hash([0; 32]),
-        ledger_seq: ledger_seq,
+        ledger_seq,
         total_coins: 0,
         fee_pool: 0,
         inflation_seq: 0,
@@ -309,7 +309,7 @@ async fn test_cold_fetch_breakdown() {
         t_json.push(s.elapsed());
     }
 
-    fn p50_us(v: &mut Vec<Duration>) -> u128 {
+    fn p50_us(v: &mut [Duration]) -> u128 {
         v.sort();
         v[v.len() / 2].as_micros()
     }
