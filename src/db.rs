@@ -285,49 +285,26 @@ impl EventStore {
     /// Results are always returned in descending order (newest first).
     /// - `after` cursor: selects events newer than the cursor, returned desc.
     /// - `before` cursor: selects events older than the cursor, returned desc.
-    /// - No cursor: returns the most recent events.
+    /// - No cursor: scans backward from the newest ledger until the limit is filled.
     #[tracing::instrument(skip_all, fields(limit = params.limit, filters = params.filters.len()))]
     pub fn query_events(
         &self,
         params: &EventQueryParams,
     ) -> Result<EventQueryResult, crate::Error> {
-        let cursor = params.after.as_ref().or(params.before.as_ref());
-
         // Extract ledger from filters (all filters share the same ledger value).
         let filter_ledger = params.filters.iter().find_map(|f| f.ledger);
 
-        // Determine the pinned ledger.
-        let pinned_ledger = match (cursor, filter_ledger) {
-            (None, None) => {
-                // Auto-select the latest ledger.
-                let latest = self.latest_ledger.load(Ordering::Relaxed);
-                if latest == 0 {
-                    None
-                } else {
-                    Some(latest)
-                }
-            }
-            _ => filter_ledger,
-        };
-
-        // If we have a pinned ledger, query that single partition.
-        if let Some(seq) = pinned_ledger {
+        // If a ledger filter is specified, query that single partition.
+        if let Some(seq) = filter_ledger {
             return self.query_single_ledger(seq, params);
         }
 
-        // Cross-ledger query (cursor provided, no ledger pin).
+        // Cross-ledger query.
         if let Some(ref after) = params.after {
             return self.query_cross_ledger_after(after, params);
         }
-        if let Some(ref before) = params.before {
-            return self.query_cross_ledger_before(before, params);
-        }
-
-        // No ledger, no cursor — return empty.
-        Ok(EventQueryResult {
-            data: Vec::new(),
-            next: None,
-        })
+        // No cursor or `before` cursor — scan backward across all ledgers.
+        self.query_cross_ledger_before(params.before.as_deref(), params)
     }
 
     /// Query events within a single ledger partition.
@@ -482,18 +459,18 @@ impl EventStore {
         })
     }
 
-    /// Cross-ledger query with `before` cursor: iterate backward across ledgers
-    /// (already descending).
+    /// Cross-ledger backward query: iterate backward across ledgers (already
+    /// descending). When `before` is `None`, starts from the newest ledger.
     fn query_cross_ledger_before(
         &self,
-        before: &str,
+        before: Option<&str>,
         params: &EventQueryParams,
     ) -> Result<EventQueryResult, crate::Error> {
         let mut ledger_seqs: Vec<u32> = self.ledgers.iter().map(|kv| *kv.key()).collect();
         ledger_seqs.sort_unstable_by(|a, b| b.cmp(a));
 
-        let cursor_ledger =
-            crate::ledger::event_id::parse_event_id(before).map(|(seq, _, _, _, _)| seq);
+        let cursor_ledger = before
+            .and_then(|b| crate::ledger::event_id::parse_event_id(b).map(|(seq, _, _, _, _)| seq));
 
         let limit = params.limit as usize;
         let mut results: Vec<EventRow> = Vec::with_capacity(limit);
@@ -517,7 +494,8 @@ impl EventStore {
 
             let events = &partition.events;
             let end = if Some(seq) == cursor_ledger {
-                match events.binary_search_by(|e| e.id.as_str().cmp(before)) {
+                let b = before.unwrap();
+                match events.binary_search_by(|e| e.id.as_str().cmp(b)) {
                     Ok(pos) => pos,
                     Err(pos) => pos,
                 }
