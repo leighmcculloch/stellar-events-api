@@ -93,4 +93,13 @@ pub struct StatusResponse {
     pub latest_ledger: Option<u32>,
     pub cached_ledgers: usize,
     pub network_passphrase: String,
+    pub build: BuildInfo,
+}
+
+/// Build metadata embedded at compile time.
+#[derive(Debug, Serialize)]
+pub struct BuildInfo {
+    pub repo: &'static str,
+    pub branch: &'static str,
+    pub commit: &'static str,
 }

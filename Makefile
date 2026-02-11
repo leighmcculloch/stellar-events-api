@@ -14,5 +14,5 @@ clean:
 	rm -rf data/
 
 deploy:
-	fly deploy --ha=false --local-only
+	fly deploy --ha=false --local-only --config fly.main.toml
 	fly scale count 1

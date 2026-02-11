@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 
 use super::error::ApiError;
-use super::types::{Event, ListResponse, PrettyJson, StatusResponse};
+use super::types::{BuildInfo, Event, ListResponse, PrettyJson, StatusResponse};
 use crate::db::{EventFilter, EventQueryParams};
 use crate::ledger::events::EventType;
 use crate::{sync, AppState};
@@ -336,6 +336,11 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Result<impl IntoRespo
         latest_ledger: latest,
         cached_ledgers: state.store.cached_ledger_count(),
         network_passphrase: state.config.network_passphrase.clone(),
+        build: BuildInfo {
+            repo: option_env!("BUILD_REPO").unwrap_or(""),
+            branch: option_env!("BUILD_BRANCH").unwrap_or(""),
+            commit: option_env!("BUILD_COMMIT").unwrap_or(""),
+        },
     };
 
     Ok(PrettyJson(response))
