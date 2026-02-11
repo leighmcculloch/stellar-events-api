@@ -66,7 +66,8 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 .example-list li{margin-bottom:10px}
 .example-list .example-desc{font-size:13px;color:#8b949e;margin-bottom:4px}
 .example-list pre{margin:0;padding:10px 14px;font-size:13px;white-space:pre-wrap;word-break:break-all}
-.try-it-link{display:inline-block;margin-top:4px;font-size:12px;color:#58a6ff;font-weight:600}
+.example-list li{position:relative}
+.try-it-link{position:absolute;top:0;right:0;font-size:12px;color:#58a6ff;font-weight:600}
 .try-it-link:hover{color:#79c0ff}
 .query-input-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
 .request-area[readonly]{background:#0d1117;color:#8b949e;cursor:default}
@@ -115,28 +116,28 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   <ul class="example-list">
     <li>
       <div class="example-desc">All contract events from a ledger</div>
-      <pre>ledger:58000000 type:contract</pre>
       <a href="#panel-byquery" class="try-it-link">try it &#x2192;</a>
+      <pre>ledger:58000000 type:contract</pre>
     </li>
     <li>
       <div class="example-desc">Transfer events for a contract</div>
-      <pre>contract:CBN3Y5KABXEF2VDO7HNNT43TXSNL3KWTJC2HQY4ENVVRSRXFJJBFNKSM topic0:{"symbol":"transfer"}</pre>
       <a href="#panel-byquery" class="try-it-link">try it &#x2192;</a>
+      <pre>contract:CBN3Y5KABXEF2VDO7HNNT43TXSNL3KWTJC2HQY4ENVVRSRXFJJBFNKSM topic0:{"symbol":"transfer"}</pre>
     </li>
     <li>
       <div class="example-desc">Events from a specific transaction</div>
-      <pre>ledger:58000000 tx:7758a34695323011e177c932cb899f3ea55c5af4d95c954e946ddddaafca0296</pre>
       <a href="#panel-byquery" class="try-it-link">try it &#x2192;</a>
+      <pre>ledger:58000000 tx:7758a34695323011e177c932cb899f3ea55c5af4d95c954e946ddddaafca0296</pre>
     </li>
     <li>
       <div class="example-desc">Transfer, mint, clawback, and burn events for XLM and USDC</div>
-      <pre>(contract:CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA OR contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75) (topic0:{"symbol":"transfer"} OR topic0:{"symbol":"mint"} OR topic0:{"symbol":"clawback"} OR topic0:{"symbol":"burn"})</pre>
       <a href="#panel-byquery" class="try-it-link">try it &#x2192;</a>
+      <pre>(contract:CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA OR contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75) (topic0:{"symbol":"transfer"} OR topic0:{"symbol":"mint"} OR topic0:{"symbol":"clawback"} OR topic0:{"symbol":"burn"})</pre>
     </li>
     <li>
       <div class="example-desc">Events where a specific address appears in any topic position</div>
-      <pre>contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 topic:{"address":"GABC..."}</pre>
       <a href="#panel-byquery" class="try-it-link">try it &#x2192;</a>
+      <pre>contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 topic:{"address":"GABC..."}</pre>
     </li>
   </ul>
 
@@ -514,7 +515,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   document.querySelectorAll('.try-it-link').forEach(function(link) {
     link.addEventListener('click', function(e) {
       e.preventDefault();
-      var query = link.previousElementSibling.textContent;
+      var query = link.nextElementSibling.textContent;
       queryInput.value = query;
       updateByQueryPanel();
       // Switch to the "By query" tab
