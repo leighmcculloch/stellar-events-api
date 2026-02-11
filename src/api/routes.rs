@@ -7,11 +7,17 @@ use axum::Json;
 
 use super::error::ApiError;
 use super::types::{BuildInfo, Event, ListResponse, PrettyJson, StatusResponse};
-use crate::db::EventQueryParams;
+use crate::db::{EventQueryParams, EventQueryResult, EventRow};
 use crate::{sync, AppState};
 
 /// Maximum number of ledgers to backfill per request.
 const BACKFILL_BATCH_SIZE: u32 = 100;
+
+/// Maximum number of ledgers to search during progressive backfill.
+const MAX_LEDGERS_SEARCHED: u32 = 1000;
+
+/// Time limit for progressive search across ledgers.
+const PROGRESSIVE_SEARCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// GET /
 pub async fn home() -> axum::response::Html<&'static str> {
@@ -125,11 +131,49 @@ async fn backfill_ledger(state: &AppState, ledger_seq: u32) {
     }
 }
 
+struct BackfillResult {
+    hit_not_found: bool,
+}
+
+/// Fetch and cache a batch of uncached ledgers concurrently from S3.
+#[tracing::instrument(skip_all, fields(count = uncached.len()))]
+async fn backfill_batch(state: &AppState, uncached: &[u32]) -> BackfillResult {
+    tracing::debug!(count = uncached.len(), "backfilling uncached ledgers");
+
+    let futures: Vec<_> = uncached
+        .iter()
+        .map(|&seq| sync::fetch_and_extract(&state.client, &state.meta_url, &state.config, seq))
+        .collect();
+    let results = futures::future::join_all(futures).await;
+
+    let mut hit_not_found = false;
+    for (i, result) in results.into_iter().enumerate() {
+        let seq = uncached[i];
+        match result {
+            Ok(events) => {
+                if let Err(e) = state.store.insert_events(events) {
+                    tracing::warn!(ledger = seq, error = %e, "backfill: failed to insert events");
+                    continue;
+                }
+                if let Err(e) = state.store.record_ledger_cached(seq, 0) {
+                    tracing::warn!(ledger = seq, error = %e, "backfill: failed to record cache");
+                }
+            }
+            Err(crate::Error::LedgerNotFound(_)) => {
+                hit_not_found = true;
+            }
+            Err(e) => {
+                tracing::warn!(ledger = seq, error = %e, "backfill: failed to fetch ledger");
+            }
+        }
+    }
+
+    BackfillResult { hit_not_found }
+}
+
 /// Fetch and cache historical ledgers on demand, starting at `target_ledger`.
 #[tracing::instrument(skip(state))]
 async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
-    // Cap the range at the latest synced ledger — don't try to fetch future ledgers
-    // since the sync task will handle those.
     let latest = state
         .store
         .latest_ledger_sequence()
@@ -149,36 +193,179 @@ async fn backfill_if_needed(state: &AppState, target_ledger: u32) {
         return;
     }
 
-    tracing::debug!(count = uncached.len(), "backfilling uncached ledgers");
+    backfill_batch(state, &uncached).await;
+}
 
-    // Fetch all uncached ledgers concurrently
-    let futures: Vec<_> = uncached
-        .iter()
-        .map(|&seq| sync::fetch_and_extract(&state.client, &state.meta_url, &state.config, seq))
-        .collect();
-    let results = futures::future::join_all(futures).await;
+/// Progressive backward query: iteratively fetch and scan ledgers from newest
+/// to oldest until the limit is filled or a stopping condition is reached.
+#[tracing::instrument(skip_all, fields(limit = params.limit))]
+async fn query_progressive_backward(
+    state: &AppState,
+    params: &EventQueryParams,
+) -> Result<EventQueryResult, crate::Error> {
+    let latest = state.store.latest_ledger_sequence()?.unwrap_or(0);
+    let start_ledger = if let Some(ref before) = params.before {
+        crate::ledger::event_id::parse_event_id(before)
+            .map(|(seq, _, _, _, _)| seq)
+            .unwrap_or(latest)
+    } else {
+        latest
+    };
 
-    // Store results directly — no locks needed with the in-memory store.
-    for (i, result) in results.into_iter().enumerate() {
-        let seq = uncached[i];
-        match result {
-            Ok(events) => {
-                if let Err(e) = state.store.insert_events(events) {
-                    tracing::warn!(ledger = seq, error = %e, "backfill: failed to insert events");
-                    continue;
-                }
-                if let Err(e) = state.store.record_ledger_cached(seq, 0) {
-                    tracing::warn!(ledger = seq, error = %e, "backfill: failed to record cache");
-                }
+    if start_ledger == 0 {
+        return Ok(EventQueryResult {
+            data: Vec::new(),
+            next: None,
+        });
+    }
+
+    let limit = params.limit as usize;
+    let mut results: Vec<EventRow> = Vec::with_capacity(limit);
+    let mut last_examined_id: Option<String> = None;
+    let mut ledgers_searched: u32 = 0;
+    let mut current = start_ledger;
+    let deadline = std::time::Instant::now() + PROGRESSIVE_SEARCH_TIMEOUT;
+
+    loop {
+        if results.len() >= limit
+            || ledgers_searched >= MAX_LEDGERS_SEARCHED
+            || std::time::Instant::now() >= deadline
+        {
+            break;
+        }
+
+        let batch_size = BACKFILL_BATCH_SIZE.min(current + 1);
+        let batch_start = current + 1 - batch_size;
+
+        let uncached = state.store.find_uncached_ledgers(batch_start, batch_size)?;
+        let hit_not_found = if !uncached.is_empty() {
+            backfill_batch(state, &uncached).await.hit_not_found
+        } else {
+            false
+        };
+
+        for seq in (batch_start..=current).rev() {
+            if results.len() >= limit
+                || ledgers_searched >= MAX_LEDGERS_SEARCHED
+                || std::time::Instant::now() >= deadline
+            {
+                break;
             }
-            Err(crate::Error::LedgerNotFound(_)) => {
-                // Ledger doesn't exist in S3 — skip
-            }
-            Err(e) => {
-                tracing::warn!(ledger = seq, error = %e, "backfill: failed to fetch ledger");
+            ledgers_searched += 1;
+
+            let remaining = limit - results.len();
+            let cursor = if seq == start_ledger {
+                params.before.as_deref()
+            } else {
+                None
+            };
+            if let Some(id) =
+                state
+                    .store
+                    .scan_ledger_backward(seq, cursor, params, &mut results, remaining)
+            {
+                last_examined_id = Some(id);
             }
         }
+
+        if hit_not_found || batch_start == 0 {
+            break;
+        }
+        current = batch_start - 1;
     }
+
+    Ok(EventQueryResult {
+        data: results,
+        next: last_examined_id,
+    })
+}
+
+/// Progressive forward query: iteratively fetch and scan ledgers from the
+/// cursor position toward the latest ledger, then reverse for descending output.
+#[tracing::instrument(skip_all, fields(limit = params.limit))]
+async fn query_progressive_forward(
+    state: &AppState,
+    params: &EventQueryParams,
+) -> Result<EventQueryResult, crate::Error> {
+    let after = params
+        .after
+        .as_deref()
+        .ok_or_else(|| crate::Error::Internal("forward query requires after cursor".to_string()))?;
+    let latest = state.store.latest_ledger_sequence()?.unwrap_or(0);
+
+    let start_ledger = crate::ledger::event_id::parse_event_id(after)
+        .map(|(seq, _, _, _, _)| seq)
+        .unwrap_or(0);
+
+    if start_ledger == 0 || latest == 0 {
+        return Ok(EventQueryResult {
+            data: Vec::new(),
+            next: None,
+        });
+    }
+
+    let limit = params.limit as usize;
+    let mut results: Vec<EventRow> = Vec::with_capacity(limit);
+    let mut last_examined_id: Option<String> = None;
+    let mut ledgers_searched: u32 = 0;
+    let mut current = start_ledger;
+    let deadline = std::time::Instant::now() + PROGRESSIVE_SEARCH_TIMEOUT;
+
+    loop {
+        if results.len() >= limit
+            || current > latest
+            || ledgers_searched >= MAX_LEDGERS_SEARCHED
+            || std::time::Instant::now() >= deadline
+        {
+            break;
+        }
+
+        let batch_size = BACKFILL_BATCH_SIZE.min(latest - current + 1);
+
+        let uncached = state.store.find_uncached_ledgers(current, batch_size)?;
+        let hit_not_found = if !uncached.is_empty() {
+            backfill_batch(state, &uncached).await.hit_not_found
+        } else {
+            false
+        };
+
+        let batch_end = current + batch_size - 1;
+        for seq in current..=batch_end {
+            if results.len() >= limit
+                || ledgers_searched >= MAX_LEDGERS_SEARCHED
+                || std::time::Instant::now() >= deadline
+            {
+                break;
+            }
+            ledgers_searched += 1;
+
+            let remaining = limit - results.len();
+            let cursor = if seq == start_ledger {
+                Some(after)
+            } else {
+                None
+            };
+            if let Some(id) =
+                state
+                    .store
+                    .scan_ledger_forward(seq, cursor, params, &mut results, remaining)
+            {
+                last_examined_id = Some(id);
+            }
+        }
+
+        if hit_not_found || batch_end >= latest {
+            break;
+        }
+        current = batch_end + 1;
+    }
+
+    results.reverse();
+
+    Ok(EventQueryResult {
+        data: results,
+        next: last_examined_id,
+    })
 }
 
 #[tracing::instrument(skip_all, fields(limit = req.limit))]
@@ -247,20 +434,7 @@ async fn list_events(
         None => Vec::new(),
     };
 
-    // Determine target ledger for on-demand backfill.
-    // Extract ledger from filters (all filters share the same ledger value).
     let filter_ledger = filters.iter().find_map(|f| f.ledger);
-    let cursor_ref = after.as_ref().or(before.as_ref());
-    let target_ledger = if filter_ledger.is_some() {
-        filter_ledger
-    } else if let Some(cursor) = cursor_ref {
-        crate::ledger::event_id::parse_event_id(cursor).map(|(seq, _, _, _, _)| seq)
-    } else {
-        None
-    };
-    if let Some(target) = target_ledger {
-        backfill_if_needed(&state, target).await;
-    }
 
     let params = EventQueryParams {
         limit,
@@ -269,12 +443,30 @@ async fn list_events(
         filters,
     };
 
-    let result = state
-        .store
-        .query_events(&params)
-        .map_err(|e| ApiError::Internal {
-            message: format!("database error: {}", e),
-        })?;
+    let result = if let Some(target) = filter_ledger {
+        // Ledger-pinned query: backfill the target range and query that partition.
+        backfill_if_needed(&state, target).await;
+        state
+            .store
+            .query_single_ledger(target, &params)
+            .map_err(|e| ApiError::Internal {
+                message: format!("database error: {}", e),
+            })?
+    } else if params.after.is_some() {
+        // Progressive forward from cursor toward latest ledger.
+        query_progressive_forward(&state, &params)
+            .await
+            .map_err(|e| ApiError::Internal {
+                message: format!("database error: {}", e),
+            })?
+    } else {
+        // Progressive backward from latest (or before cursor) toward oldest.
+        query_progressive_backward(&state, &params)
+            .await
+            .map_err(|e| ApiError::Internal {
+                message: format!("database error: {}", e),
+            })?
+    };
 
     tracing::debug!(events = result.data.len(), "query complete");
 

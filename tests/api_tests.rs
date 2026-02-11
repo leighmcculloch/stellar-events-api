@@ -1304,3 +1304,184 @@ async fn test_q_ledger_with_tx() {
         assert_eq!(evt["tx"], tx_hash);
     }
 }
+
+// --- Cross-ledger progressive search tests ---
+
+/// Create test events spread across three ledgers (100, 101, 102), 2 events each.
+fn make_cross_ledger_events() -> Vec<ExtractedEvent> {
+    let mut events = Vec::new();
+    for ledger in [100u32, 101, 102] {
+        for i in 0..2u32 {
+            events.push(ExtractedEvent {
+                ledger_sequence: ledger,
+                ledger_closed_at: 1_700_000_000 + i64::from(ledger) * 100,
+                phase: EventPhase::Operation,
+                tx_index: i,
+                event_index: 0,
+                tx_hash: format!("{:03}_{:061x}", ledger, i),
+                contract_id: Some(if ledger <= 101 {
+                    "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string()
+                } else {
+                    "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string()
+                }),
+                event_type: EventType::Contract,
+                topics_xdr_json: vec![serde_json::json!({"symbol": "transfer"})],
+                data_xdr_json: serde_json::json!({"amount": ledger * 10 + i}),
+            });
+        }
+    }
+    events
+}
+
+#[tokio::test]
+async fn test_cross_ledger_backward_no_cursor() {
+    let events = make_cross_ledger_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // No cursor, limit=3 — should get newest 3 events (desc order).
+    let resp = client
+        .get(format!("{}/events?limit=3", base_url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 3);
+    // Newest first: 2 from ledger 102, then 1 from ledger 101.
+    assert_eq!(data[0]["ledger"], 102);
+    assert_eq!(data[1]["ledger"], 102);
+    assert_eq!(data[2]["ledger"], 101);
+}
+
+#[tokio::test]
+async fn test_cross_ledger_backward_pagination() {
+    let events = make_cross_ledger_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // Page 1: newest 2
+    let resp = client
+        .get(format!("{}/events?limit=2", base_url))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 2);
+    assert_eq!(data[0]["ledger"], 102);
+    assert_eq!(data[1]["ledger"], 102);
+    let next = body["next"].as_str().unwrap().to_string();
+
+    // Page 2
+    let resp = client
+        .get(format!("{}/events?limit=2&before={}", base_url, next))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 2);
+    assert_eq!(data[0]["ledger"], 101);
+    assert_eq!(data[1]["ledger"], 101);
+    let next = body["next"].as_str().unwrap().to_string();
+
+    // Page 3
+    let resp = client
+        .get(format!("{}/events?limit=2&before={}", base_url, next))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 2);
+    assert_eq!(data[0]["ledger"], 100);
+    assert_eq!(data[1]["ledger"], 100);
+}
+
+#[tokio::test]
+async fn test_cross_ledger_forward() {
+    let events = make_cross_ledger_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // Get all events to find the oldest ID.
+    let resp = client
+        .get(format!("{}/events?limit=10", base_url))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 6);
+    let oldest_id = data.last().unwrap()["id"].as_str().unwrap().to_string();
+
+    // Query with after=oldest, limit=3.
+    let resp = client
+        .get(format!("{}/events?after={}&limit=3", base_url, oldest_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 3);
+    // Results in descending order.
+    let ledgers: Vec<u64> = data.iter().map(|e| e["ledger"].as_u64().unwrap()).collect();
+    assert!(ledgers[0] >= ledgers[1]);
+    assert!(ledgers[1] >= ledgers[2]);
+}
+
+#[tokio::test]
+async fn test_cross_ledger_with_filter() {
+    let events = make_cross_ledger_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // Filter by contract CA — only ledgers 100 and 101 have contract CA.
+    let resp = client
+        .get(format!(
+            "{}/events?q={}",
+            base_url,
+            q_param("contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 4);
+    for evt in data {
+        assert_eq!(
+            evt["contract"],
+            "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_cross_ledger_all_events() {
+    let events = make_cross_ledger_events();
+    let base_url = start_test_server(events).await;
+    let client = reqwest::Client::new();
+
+    // Should return all 6 events across 3 ledgers.
+    let resp = client
+        .get(format!("{}/events?limit=10", base_url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let data = body["data"].as_array().unwrap();
+    assert_eq!(data.len(), 6);
+    // Descending order: ledger 102, 102, 101, 101, 100, 100.
+    assert_eq!(data[0]["ledger"], 102);
+    assert_eq!(data[1]["ledger"], 102);
+    assert_eq!(data[2]["ledger"], 101);
+    assert_eq!(data[3]["ledger"], 101);
+    assert_eq!(data[4]["ledger"], 100);
+    assert_eq!(data[5]["ledger"], 100);
+}

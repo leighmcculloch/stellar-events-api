@@ -296,7 +296,7 @@ async fn test_cold_fetch_breakdown() {
             }],
         };
         let s = std::time::Instant::now();
-        let result = store.query_events(&params).unwrap();
+        let result = store.query_single_ledger(1000, &params).unwrap();
         t_query.push(s.elapsed());
 
         assert_eq!(result.data.len(), 50);

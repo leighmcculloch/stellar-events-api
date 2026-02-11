@@ -280,37 +280,10 @@ impl EventStore {
         Ok(())
     }
 
-    /// Query events with cursor-based pagination and filtering.
-    ///
-    /// Results are always returned in descending order (newest first).
-    /// - `after` cursor: selects events newer than the cursor, returned desc.
-    /// - `before` cursor: selects events older than the cursor, returned desc.
-    /// - No cursor: scans backward from the newest ledger until the limit is filled.
-    #[tracing::instrument(skip_all, fields(limit = params.limit, filters = params.filters.len()))]
-    pub fn query_events(
-        &self,
-        params: &EventQueryParams,
-    ) -> Result<EventQueryResult, crate::Error> {
-        // Extract ledger from filters (all filters share the same ledger value).
-        let filter_ledger = params.filters.iter().find_map(|f| f.ledger);
-
-        // If a ledger filter is specified, query that single partition.
-        if let Some(seq) = filter_ledger {
-            return self.query_single_ledger(seq, params);
-        }
-
-        // Cross-ledger query.
-        if let Some(ref after) = params.after {
-            return self.query_cross_ledger_after(after, params);
-        }
-        // No cursor or `before` cursor — scan backward across all ledgers.
-        self.query_cross_ledger_before(params.before.as_deref(), params)
-    }
-
     /// Query events within a single ledger partition.
     ///
     /// Always returns results in descending order (newest first).
-    fn query_single_ledger(
+    pub fn query_single_ledger(
         &self,
         ledger_seq: u32,
         params: &EventQueryParams,
@@ -397,128 +370,89 @@ impl EventStore {
         true
     }
 
-    /// Cross-ledger query with `after` cursor: iterate forward across ledgers,
-    /// then reverse the collected results for descending display.
-    fn query_cross_ledger_after(
+    /// Scan a single ledger partition backward (newest to oldest).
+    ///
+    /// If `cursor` is `Some`, uses it as an exclusive upper bound (events at or
+    /// after the cursor position are skipped). Appends up to `remaining`
+    /// matching events to `results`. Returns the external ID of the last
+    /// examined event, suitable for use as the `next` pagination cursor.
+    pub fn scan_ledger_backward(
         &self,
-        after: &str,
+        seq: u32,
+        cursor: Option<&str>,
         params: &EventQueryParams,
-    ) -> Result<EventQueryResult, crate::Error> {
-        let mut ledger_seqs: Vec<u32> = self.ledgers.iter().map(|kv| *kv.key()).collect();
-        ledger_seqs.sort_unstable();
+        results: &mut Vec<EventRow>,
+        remaining: usize,
+    ) -> Option<String> {
+        let partition = match self.ledgers.get(&seq) {
+            Some(p) => Arc::clone(p.value()),
+            None => return None,
+        };
+        let events = &partition.events;
+        let end = match cursor {
+            Some(c) => match events.binary_search_by(|e| e.id.as_str().cmp(c)) {
+                Ok(pos) => pos,
+                Err(pos) => pos,
+            },
+            None => events.len(),
+        };
 
-        let cursor_ledger =
-            crate::ledger::event_id::parse_event_id(after).map(|(seq, _, _, _, _)| seq);
-
-        let limit = params.limit as usize;
-        let mut results: Vec<EventRow> = Vec::with_capacity(limit);
+        let mut added = 0;
         let mut last_examined_id: Option<String> = None;
-
-        for &seq in &ledger_seqs {
-            if let Some(cl) = cursor_ledger {
-                if seq < cl {
-                    continue;
-                }
-            }
-
-            if results.len() >= limit {
+        for event in events[..end].iter().rev() {
+            if added >= remaining {
                 break;
             }
-
-            let partition = match self.ledgers.get(&seq) {
-                Some(p) => Arc::clone(p.value()),
-                None => continue,
-            };
-
-            let events = &partition.events;
-            let start = if Some(seq) == cursor_ledger {
-                match events.binary_search_by(|e| e.id.as_str().cmp(after)) {
-                    Ok(pos) => pos + 1,
-                    Err(pos) => pos,
-                }
-            } else {
-                0
-            };
-
-            for event in events.iter().skip(start) {
-                if results.len() >= limit {
-                    break;
-                }
-                last_examined_id = Some(event.external_id.clone());
-                if !self.event_matches(event, params) {
-                    continue;
-                }
+            last_examined_id = Some(event.external_id.clone());
+            if self.event_matches(event, params) {
                 results.push(event.to_event_row());
+                added += 1;
             }
         }
 
-        results.reverse();
-        Ok(EventQueryResult {
-            data: results,
-            next: last_examined_id,
-        })
+        last_examined_id
     }
 
-    /// Cross-ledger backward query: iterate backward across ledgers (already
-    /// descending). When `before` is `None`, starts from the newest ledger.
-    fn query_cross_ledger_before(
+    /// Scan a single ledger partition forward (oldest to newest).
+    ///
+    /// If `cursor` is `Some`, starts after the cursor position (exclusive).
+    /// Appends up to `remaining` matching events to `results`. Returns the
+    /// external ID of the last examined event.
+    pub fn scan_ledger_forward(
         &self,
-        before: Option<&str>,
+        seq: u32,
+        cursor: Option<&str>,
         params: &EventQueryParams,
-    ) -> Result<EventQueryResult, crate::Error> {
-        let mut ledger_seqs: Vec<u32> = self.ledgers.iter().map(|kv| *kv.key()).collect();
-        ledger_seqs.sort_unstable_by(|a, b| b.cmp(a));
+        results: &mut Vec<EventRow>,
+        remaining: usize,
+    ) -> Option<String> {
+        let partition = match self.ledgers.get(&seq) {
+            Some(p) => Arc::clone(p.value()),
+            None => return None,
+        };
+        let events = &partition.events;
+        let start = match cursor {
+            Some(c) => match events.binary_search_by(|e| e.id.as_str().cmp(c)) {
+                Ok(pos) => pos + 1,
+                Err(pos) => pos,
+            },
+            None => 0,
+        };
 
-        let cursor_ledger = before
-            .and_then(|b| crate::ledger::event_id::parse_event_id(b).map(|(seq, _, _, _, _)| seq));
-
-        let limit = params.limit as usize;
-        let mut results: Vec<EventRow> = Vec::with_capacity(limit);
+        let mut added = 0;
         let mut last_examined_id: Option<String> = None;
-
-        for &seq in &ledger_seqs {
-            if let Some(cl) = cursor_ledger {
-                if seq > cl {
-                    continue;
-                }
-            }
-
-            if results.len() >= limit {
+        for event in events.iter().skip(start) {
+            if added >= remaining {
                 break;
             }
-
-            let partition = match self.ledgers.get(&seq) {
-                Some(p) => Arc::clone(p.value()),
-                None => continue,
-            };
-
-            let events = &partition.events;
-            let end = if Some(seq) == cursor_ledger {
-                let b = before.unwrap();
-                match events.binary_search_by(|e| e.id.as_str().cmp(b)) {
-                    Ok(pos) => pos,
-                    Err(pos) => pos,
-                }
-            } else {
-                events.len()
-            };
-
-            for event in events[..end].iter().rev() {
-                if results.len() >= limit {
-                    break;
-                }
-                last_examined_id = Some(event.external_id.clone());
-                if !self.event_matches(event, params) {
-                    continue;
-                }
+            last_examined_id = Some(event.external_id.clone());
+            if self.event_matches(event, params) {
                 results.push(event.to_event_row());
+                added += 1;
             }
         }
 
-        Ok(EventQueryResult {
-            data: results,
-            next: last_examined_id,
-        })
+        last_examined_id
     }
 
     /// Get the highest ledger sequence in the store.

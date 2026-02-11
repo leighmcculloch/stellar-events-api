@@ -543,6 +543,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       tabGroup.querySelector('[data-tab="byquery"]').classList.add('active');
       var panel = document.getElementById('panel-byquery');
       panel.classList.add('active');
+      panel.querySelectorAll('.request-area').forEach(autoResize);
       panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   });
