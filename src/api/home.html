@@ -36,6 +36,11 @@ summary::before{content:'';display:inline-block;width:0;height:0;border:5px soli
 details[open]>summary::before{transform:rotate(90deg)}
 summary:hover{background:#21262d40}
 summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto}
+summary h3{margin:0;font-size:15px;color:inherit}
+.endpoint-body>details>summary{padding:10px 12px}
+.endpoint-body>details{margin:16px 0;padding:0}
+.endpoint-body>details>*:not(summary){margin-left:16px;margin-right:16px}
+.endpoint-body>details>*:last-child{margin-bottom:16px}
 .endpoint-body{padding:0 16px 16px}
 .tabs{display:flex;gap:0;border-bottom:2px solid #21262d;margin-bottom:0}
 .tab{padding:8px 16px;cursor:pointer;color:#8b949e;font-size:14px;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .15s,border-color .15s}
@@ -101,7 +106,8 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><td><code>q</code></td><td>string or object</td><td>Filter query — a string (GET &amp; POST) or a <a href="/schema">JSON object</a> (POST only). See syntax below.</td></tr>
   </table>
 
-  <h3 id="query-syntax">Query Syntax (<code>q</code> parameter)</h3>
+  <details id="query-syntax">
+  <summary><h3>Query Syntax (<code>q</code> parameter)</h3></summary>
   <p>Filter events using <code>key:value</code> qualifiers. Space-separated qualifiers are AND'd. Use <code>OR</code> for alternatives. Parentheses group expressions.</p>
   <table>
     <tr><th>Key</th><th>Value</th><th>Example</th></tr>
@@ -140,8 +146,10 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       <pre>contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 topic:{"address":"GABC..."}</pre>
     </li>
   </ul>
+  </details>
 
-  <h3 id="json-query-syntax">JSON Query Syntax (POST only)</h3>
+  <details id="json-query-syntax">
+  <summary><h3>JSON Query Syntax (POST only)</h3></summary>
   <p>In POST requests, <code>q</code> can be a structured JSON object instead of a string. The format uses <code>and</code>/<code>or</code> nodes and single-key qualifier objects. See the <a href="/schema">JSON Schema</a>.</p>
 
   <h3 id="json-node-types">Node types</h3>
@@ -186,8 +194,10 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     ]
   }
 }</pre>
+  </details>
 
-  <h3 id="query-limits">Query Limits</h3>
+  <details id="query-limits">
+  <summary><h3>Query Limits</h3></summary>
   <table>
     <tr><th>Limit</th><th>Value</th></tr>
     <tr><td>Max query length</td><td>1,024 bytes</td></tr>
@@ -195,6 +205,27 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><td>Max parenthesis nesting depth</td><td>4</td></tr>
     <tr><td>Max filter combinations after expansion</td><td>20</td></tr>
   </table>
+  </details>
+
+  <details id="pagination">
+  <summary><h3>Pagination</h3></summary>
+  <p>Results are always returned in <strong>descending order</strong> (newest first). Use the <code>before</code> and <code>after</code> cursors to page through events.</p>
+
+  <p><strong>Browsing history</strong> &mdash; page backward through older events:</p>
+  <ol>
+    <li>Fetch the first page: <code>GET /events?limit=10</code></li>
+    <li>The response includes a <code>next</code> field with a cursor.</li>
+    <li>Pass it as <code>before</code> to get the next page of older events: <code>GET /events?limit=10&amp;before=evt_...</code></li>
+    <li>Repeat until <code>data</code> is empty.</li>
+  </ol>
+
+  <p><strong>Streaming new events</strong> &mdash; poll for events newer than the last seen:</p>
+  <ol>
+    <li>Save the <code>id</code> of the newest event you've seen (the first item in <code>data</code>).</li>
+    <li>Poll with <code>after</code>: <code>GET /events?after=evt_...</code></li>
+    <li>Any events created since your last seen <code>id</code> are returned, newest first.</li>
+  </ol>
+  </details>
 
   <h3 id="response">Response</h3>
   <pre>{
@@ -216,24 +247,6 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     }
   ]
 }</pre>
-
-  <h3 id="pagination">Pagination</h3>
-  <p>Results are always returned in <strong>descending order</strong> (newest first). Use the <code>before</code> and <code>after</code> cursors to page through events.</p>
-
-  <p><strong>Browsing history</strong> &mdash; page backward through older events:</p>
-  <ol>
-    <li>Fetch the first page: <code>GET /events?limit=10</code></li>
-    <li>The response includes a <code>next</code> field with a cursor.</li>
-    <li>Pass it as <code>before</code> to get the next page of older events: <code>GET /events?limit=10&amp;before=evt_...</code></li>
-    <li>Repeat until <code>data</code> is empty.</li>
-  </ol>
-
-  <p><strong>Streaming new events</strong> &mdash; poll for events newer than the last seen:</p>
-  <ol>
-    <li>Save the <code>id</code> of the newest event you've seen (the first item in <code>data</code>).</li>
-    <li>Poll with <code>after</code>: <code>GET /events?after=evt_...</code></li>
-    <li>Any events created since your last seen <code>id</code> are returned, newest first.</li>
-  </ol>
 
   <h3 id="try-it">Try it</h3>
   <div class="tabs" data-group="events-list">
