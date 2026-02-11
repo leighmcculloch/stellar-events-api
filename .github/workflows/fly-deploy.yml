@@ -11,7 +11,7 @@ jobs:
     name: Deploy app
     runs-on: ubuntu-latest
     concurrency: deploy-${{ github.head_ref || github.ref_name }}
-    environment: fly.io
+    environment: ${{ github.head_ref || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - name: Check for fly config
