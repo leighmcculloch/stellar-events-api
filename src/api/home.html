@@ -36,6 +36,11 @@ summary::before{content:'';display:inline-block;width:0;height:0;border:5px soli
 details[open]>summary::before{transform:rotate(90deg)}
 summary:hover{background:#21262d40}
 summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto}
+summary h3{margin:0;font-size:15px;color:inherit}
+.endpoint-body>details>summary{padding:10px 12px}
+.endpoint-body>details{margin:16px 0;padding:0}
+.endpoint-body>details>*:not(summary){margin-left:16px;margin-right:16px}
+.endpoint-body>details>*:last-child{margin-bottom:16px}
 .endpoint-body{padding:0 16px 16px}
 .tabs{display:flex;gap:0;border-bottom:2px solid #21262d;margin-bottom:0}
 .tab{padding:8px 16px;cursor:pointer;color:#8b949e;font-size:14px;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .15s,border-color .15s}
@@ -46,7 +51,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 .toggle-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
 .toggle-btn{padding:4px 12px;font-size:13px;font-weight:600;border:1px solid #30363d;background:#21262d;color:#8b949e;cursor:pointer;border-radius:4px;font-family:"SF Mono",Consolas,monospace;transition:all .15s}
 .toggle-btn.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
-.request-area{width:100%;min-height:60px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-family:"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;font-size:13px;padding:12px;resize:vertical;line-height:1.5}
+.request-area{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-family:"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;font-size:13px;padding:12px;resize:none;overflow:hidden;line-height:1.5}
 .submit-btn{margin-top:10px;padding:6px 20px;font-size:14px;font-weight:600;background:#238636;color:#fff;border:1px solid #2ea04366;border-radius:6px;cursor:pointer;transition:background .15s}
 .submit-btn:hover{background:#2ea043}
 .submit-btn:disabled{opacity:.5;cursor:not-allowed}
@@ -62,6 +67,15 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 .spinner{display:none;width:16px;height:16px;border:2px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:spin .6s linear infinite;margin-left:8px;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 .filter-table td{vertical-align:top}
+.example-list{list-style:none;padding:0;margin:8px 0 16px}
+.example-list li{margin-bottom:10px}
+.example-list .example-desc{font-size:13px;color:#8b949e;margin-bottom:4px}
+.example-list pre{margin:0;padding:10px 14px;font-size:13px;white-space:pre-wrap;word-break:break-all}
+.example-list li{position:relative}
+.try-it-link{position:absolute;top:0;right:0;font-size:12px;color:#58a6ff;font-weight:600}
+.try-it-link:hover{color:#79c0ff}
+.query-input-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.request-area[readonly]{background:#0d1117;color:#8b949e;cursor:default}
 </style>
 </head>
 <body>
@@ -74,7 +88,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 </header>
 
 <!-- GET/POST /events -->
-<details>
+<details open>
   <summary>
     <span class="method method-get">GET</span>
     <span class="method method-post">POST</span>
@@ -89,20 +103,131 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     <tr><td><code>limit</code></td><td>integer</td><td>Number of events to return (1–100, default 10)</td></tr>
     <tr><td><code>after</code></td><td>string</td><td>Return events newer than this cursor (event <code>id</code>)</td></tr>
     <tr><td><code>before</code></td><td>string</td><td>Return events older than this cursor (event <code>id</code>). Use the <code>next</code> field from a previous response to paginate.</td></tr>
-    <tr><td><code>ledger</code></td><td>integer</td><td>Only return events from this ledger sequence</td></tr>
-    <tr><td><code>tx</code></td><td>string</td><td>Limit to events from this transaction hash (requires <code>ledger</code>)</td></tr>
-    <tr><td><code>filters</code></td><td>JSON string / array</td><td>Filter objects (see below). GET accepts a JSON-encoded string; POST accepts an array.</td></tr>
+    <tr><td><code>q</code></td><td>string or object</td><td>Filter query — a string (GET &amp; POST) or a <a href="/schema">JSON object</a> (POST only). See syntax below.</td></tr>
   </table>
 
-  <h3>Filter Object</h3>
+  <details id="query-syntax" open>
+  <summary><h3>Query Syntax (<code>q</code> parameter)</h3></summary>
+  <p>Filter events using <code>key:value</code> qualifiers. Space-separated qualifiers are AND'd. Use <code>OR</code> for alternatives. Parentheses group expressions.</p>
   <table>
-    <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-    <tr><td><code>type</code></td><td>string</td><td><code>"contract"</code> or <code>"system"</code></td></tr>
-    <tr><td><code>contract</code></td><td>string</td><td>Stellar contract strkey (C…)</td></tr>
-    <tr><td><code>topics</code></td><td>array</td><td>Positional topic matching. Each element is an XDR-JSON ScVal or <code>null</code> (wildcard)</td></tr>
+    <tr><th>Key</th><th>Value</th><th>Example</th></tr>
+    <tr><td><code>type</code></td><td><code>contract</code> or <code>system</code></td><td><code>type:contract</code></td></tr>
+    <tr><td><code>contract</code></td><td>Stellar contract strkey (C…)</td><td><code>contract:CCW67...</code></td></tr>
+    <tr><td><code>ledger</code></td><td>Ledger sequence number</td><td><code>ledger:58000000</code></td></tr>
+    <tr><td><code>tx</code></td><td>Transaction hash (requires <code>ledger</code>)</td><td><code>tx:abc123...</code></td></tr>
+    <tr><td><code>topic</code></td><td>XDR-JSON ScVal object</td><td><code>topic:{"symbol":"transfer"}</code></td></tr>
+    <tr><td><code>topic0</code>…<code>topic3</code></td><td>XDR-JSON ScVal object</td><td><code>topic0:{"symbol":"transfer"}</code></td></tr>
+  </table>
+  <h3 id="examples">Examples</h3>
+  <ul class="example-list">
+    <li>
+      <div class="example-desc">All contract events from a ledger</div>
+      <a href="#panel-byquery" class="try-it-link">try it &#x2192;</a>
+      <pre>ledger:58000000 type:contract</pre>
+    </li>
+    <li>
+      <div class="example-desc">Transfer events for a contract</div>
+      <a href="#panel-byquery" class="try-it-link">try it &#x2192;</a>
+      <pre>contract:CBN3Y5KABXEF2VDO7HNNT43TXSNL3KWTJC2HQY4ENVVRSRXFJJBFNKSM topic0:{"symbol":"transfer"}</pre>
+    </li>
+    <li>
+      <div class="example-desc">Events from a specific transaction</div>
+      <a href="#panel-byquery" class="try-it-link">try it &#x2192;</a>
+      <pre>ledger:58000000 tx:7758a34695323011e177c932cb899f3ea55c5af4d95c954e946ddddaafca0296</pre>
+    </li>
+    <li>
+      <div class="example-desc">Transfer, mint, clawback, and burn events for XLM and USDC</div>
+      <a href="#panel-byquery" class="try-it-link">try it &#x2192;</a>
+      <pre>(contract:CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA OR contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75) (topic0:{"symbol":"transfer"} OR topic0:{"symbol":"mint"} OR topic0:{"symbol":"clawback"} OR topic0:{"symbol":"burn"})</pre>
+    </li>
+    <li>
+      <div class="example-desc">Events where a specific address appears in any topic position</div>
+      <a href="#panel-byquery" class="try-it-link">try it &#x2192;</a>
+      <pre>contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 topic:{"address":"GABC..."}</pre>
+    </li>
+  </ul>
+  </details>
+
+  <details id="json-query-syntax">
+  <summary><h3>JSON Query Syntax (POST only)</h3></summary>
+  <p>In POST requests, <code>q</code> can be a structured JSON object instead of a string. The format uses <code>and</code>/<code>or</code> nodes and single-key qualifier objects. See the <a href="/schema">JSON Schema</a>.</p>
+
+  <h3 id="json-node-types">Node types</h3>
+  <p>Every node is a JSON object with exactly one key:</p>
+  <table>
+    <tr><th>Node</th><th>Shape</th><th>Description</th></tr>
+    <tr><td>Qualifier</td><td><code>{"key": value}</code></td><td>A single filter condition. Key must be one of the qualifier keys below.</td></tr>
+    <tr><td>And</td><td><code>{"and": [expr, ...]}</code></td><td>All children must match. Array length &ge; 1.</td></tr>
+    <tr><td>Or</td><td><code>{"or": [expr, ...]}</code></td><td>At least one child must match. Array length &ge; 1.</td></tr>
   </table>
 
-  <h3>Response</h3>
+  <h3 id="json-qualifier-keys">Qualifier keys</h3>
+  <table>
+    <tr><th>Key</th><th>JSON value type</th><th>Example</th></tr>
+    <tr><td><code>type</code></td><td>string (<code>"contract"</code>, <code>"system"</code>, <code>"diagnostic"</code>)</td><td><code>{"type":"contract"}</code></td></tr>
+    <tr><td><code>contract</code></td><td>string (Stellar contract strkey)</td><td><code>{"contract":"CCW67..."}</code></td></tr>
+    <tr><td><code>ledger</code></td><td>integer</td><td><code>{"ledger":58000000}</code></td></tr>
+    <tr><td><code>tx</code></td><td>string (transaction hash; requires <code>ledger</code>)</td><td><code>{"tx":"abc123..."}</code></td></tr>
+    <tr><td><code>topic</code></td><td>any JSON (XDR-JSON ScVal, matches any position)</td><td><code>{"topic":{"symbol":"transfer"}}</code></td></tr>
+    <tr><td><code>topic0</code>&hellip;<code>topic3</code></td><td>any JSON (XDR-JSON ScVal, matches specific position)</td><td><code>{"topic0":{"symbol":"transfer"}}</code></td></tr>
+  </table>
+
+  <h3 id="json-examples">JSON query examples</h3>
+  <table>
+    <tr><th>String syntax</th><th>JSON syntax</th></tr>
+    <tr><td><code>type:contract</code></td><td><code>{"type":"contract"}</code></td></tr>
+    <tr><td><code>type:contract contract:CCW67...</code></td><td><code>{"and":[{"type":"contract"},{"contract":"CCW67..."}]}</code></td></tr>
+    <tr><td><code>type:contract OR type:system</code></td><td><code>{"or":[{"type":"contract"},{"type":"system"}]}</code></td></tr>
+    <tr><td><code>(type:contract OR type:system) contract:CCW67...</code></td><td><code>{"and":[{"or":[{"type":"contract"},{"type":"system"}]},{"contract":"CCW67..."}]}</code></td></tr>
+    <tr><td><code>topic0:{"symbol":"transfer"}</code></td><td><code>{"topic0":{"symbol":"transfer"}}</code></td></tr>
+    <tr><td><code>ledger:100 tx:abc</code></td><td><code>{"and":[{"ledger":100},{"tx":"abc"}]}</code></td></tr>
+  </table>
+
+  <p>A full POST request body using the JSON format:</p>
+  <pre>{
+  "limit": 10,
+  "q": {
+    "and": [
+      {"or": [{"type": "contract"}, {"type": "system"}]},
+      {"contract": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"},
+      {"topic0": {"symbol": "transfer"}}
+    ]
+  }
+}</pre>
+  </details>
+
+  <details id="query-limits">
+  <summary><h3>Query Limits</h3></summary>
+  <table>
+    <tr><th>Limit</th><th>Value</th></tr>
+    <tr><td>Max query length</td><td>1,024 bytes</td></tr>
+    <tr><td>Max terms (key:value pairs)</td><td>20</td></tr>
+    <tr><td>Max parenthesis nesting depth</td><td>4</td></tr>
+    <tr><td>Max filter combinations after expansion</td><td>20</td></tr>
+  </table>
+  </details>
+
+  <details id="pagination">
+  <summary><h3>Pagination</h3></summary>
+  <p>Results are always returned in <strong>descending order</strong> (newest first). Use the <code>before</code> and <code>after</code> cursors to page through events.</p>
+
+  <p><strong>Browsing history</strong> &mdash; page backward through older events:</p>
+  <ol>
+    <li>Fetch the first page: <code>GET /events?limit=10</code></li>
+    <li>The response includes a <code>next</code> field with a cursor.</li>
+    <li>Pass it as <code>before</code> to get the next page of older events: <code>GET /events?limit=10&amp;before=evt_...</code></li>
+    <li>Repeat until <code>data</code> is empty.</li>
+  </ol>
+
+  <p><strong>Streaming new events</strong> &mdash; poll for events newer than the last seen:</p>
+  <ol>
+    <li>Save the <code>id</code> of the newest event you've seen (the first item in <code>data</code>).</li>
+    <li>Poll with <code>after</code>: <code>GET /events?after=evt_...</code></li>
+    <li>Any events created since your last seen <code>id</code> are returned, newest first.</li>
+  </ol>
+  </details>
+
+  <h3 id="response">Response</h3>
   <pre>{
   "object": "list",
   "url": "/events?...",
@@ -123,31 +248,14 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   ]
 }</pre>
 
-  <h3>Pagination</h3>
-  <p>Results are always returned in <strong>descending order</strong> (newest first). Use the <code>before</code> and <code>after</code> cursors to page through events.</p>
-
-  <p><strong>Browsing history</strong> &mdash; page backward through older events:</p>
-  <ol>
-    <li>Fetch the first page: <code>GET /events?limit=10</code></li>
-    <li>The response includes a <code>next</code> field with a cursor.</li>
-    <li>Pass it as <code>before</code> to get the next page of older events: <code>GET /events?limit=10&amp;before=evt_...</code></li>
-    <li>Repeat until <code>data</code> is empty.</li>
-  </ol>
-
-  <p><strong>Streaming new events</strong> &mdash; poll for events newer than the last seen:</p>
-  <ol>
-    <li>Save the <code>id</code> of the newest event you've seen (the first item in <code>data</code>).</li>
-    <li>Poll with <code>after</code>: <code>GET /events?after=evt_...</code></li>
-    <li>Any events created since your last seen <code>id</code> are returned, newest first.</li>
-  </ol>
-
-  <h3>Try it</h3>
+  <h3 id="try-it">Try it</h3>
   <div class="tabs" data-group="events-list">
     <button class="tab active" data-tab="latest">Latest</button>
     <button class="tab" data-tab="bytype">By type</button>
     <button class="tab" data-tab="bytopics">By topics</button>
     <button class="tab" data-tab="bycontract">By contract</button>
     <button class="tab" data-tab="byledger">By ledger</button>
+    <button class="tab" data-tab="byquery">By query</button>
     <button class="tab" data-tab="pagination">Pagination</button>
   </div>
 
@@ -183,14 +291,12 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       <button class="toggle-btn" data-method="POST" data-panel="bytype">POST</button>
     </div>
     <div class="request-get" id="req-get-bytype">
-      <textarea class="request-area" rows="1">/events?limit=5&filters=[{"type":"contract"}]</textarea>
+      <textarea class="request-area" rows="1">/events?limit=5&q=type:contract</textarea>
     </div>
     <div class="request-post" id="req-post-bytype" style="display:none">
-      <textarea class="request-area" rows="6">{
+      <textarea class="request-area" rows="4">{
   "limit": 5,
-  "filters": [
-    { "type": "contract" }
-  ]
+  "q": "type:contract"
 }</textarea>
     </div>
     <div class="curl-area" id="curl-bytype">
@@ -211,17 +317,12 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       <button class="toggle-btn" data-method="POST" data-panel="bytopics">POST</button>
     </div>
     <div class="request-get" id="req-get-bytopics">
-      <textarea class="request-area" rows="1">/events?limit=5&filters=[{"type":"contract","topics":[{"symbol":"transfer"}]}]</textarea>
+      <textarea class="request-area" rows="1">/events?limit=5&q=type:contract%20topic0:{"symbol":"transfer"}</textarea>
     </div>
     <div class="request-post" id="req-post-bytopics" style="display:none">
-      <textarea class="request-area" rows="8">{
+      <textarea class="request-area" rows="4">{
   "limit": 5,
-  "filters": [
-    {
-      "type": "contract",
-      "topics": [{"symbol": "transfer"}]
-    }
-  ]
+  "q": "type:contract topic0:{\"symbol\":\"transfer\"}"
 }</textarea>
     </div>
     <div class="curl-area" id="curl-bytopics">
@@ -242,14 +343,12 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       <button class="toggle-btn" data-method="POST" data-panel="bycontract">POST</button>
     </div>
     <div class="request-get" id="req-get-bycontract">
-      <textarea class="request-area" rows="1">/events?limit=5&filters=[{"contract":"CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI"}]</textarea>
+      <textarea class="request-area" rows="1">/events?limit=5&q=contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI</textarea>
     </div>
     <div class="request-post" id="req-post-bycontract" style="display:none">
-      <textarea class="request-area" rows="6">{
+      <textarea class="request-area" rows="4">{
   "limit": 5,
-  "filters": [
-    { "contract": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI" }
-  ]
+  "q": "contract:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI"
 }</textarea>
     </div>
     <div class="curl-area" id="curl-bycontract">
@@ -270,12 +369,12 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       <button class="toggle-btn" data-method="POST" data-panel="byledger">POST</button>
     </div>
     <div class="request-get" id="req-get-byledger">
-      <textarea class="request-area" rows="1">/events?limit=5&ledger=58000000</textarea>
+      <textarea class="request-area" rows="1">/events?limit=5&q=ledger:58000000</textarea>
     </div>
     <div class="request-post" id="req-post-byledger" style="display:none">
       <textarea class="request-area" rows="4">{
   "limit": 5,
-  "ledger": 58000000
+  "q": "ledger:58000000"
 }</textarea>
     </div>
     <div class="curl-area" id="curl-byledger">
@@ -284,6 +383,35 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     </div>
     <button class="submit-btn" data-panel="byledger">Submit<span class="spinner"></span></button>
     <div class="response-area" id="resp-byledger">
+      <div class="response-label">Response<span class="response-time"></span></div>
+      <pre>Click Submit to send a request.</pre>
+    </div>
+  </div>
+
+  <!-- By query -->
+  <div class="tab-panel" id="panel-byquery">
+    <div class="toggle-row">
+      <button class="toggle-btn active" data-method="GET" data-panel="byquery">GET</button>
+      <button class="toggle-btn" data-method="POST" data-panel="byquery">POST</button>
+    </div>
+    <div class="query-input-label">Query (<code>q</code>)</div>
+    <textarea class="request-area" id="query-input" rows="2" placeholder="type:contract topic0:{&quot;symbol&quot;:&quot;transfer&quot;}">type:contract</textarea>
+    <div class="request-get" id="req-get-byquery">
+      <div class="query-input-label" style="margin-top:10px">Path</div>
+      <textarea class="request-area" rows="1" readonly>/events?q=type%3Acontract</textarea>
+    </div>
+    <div class="request-post" id="req-post-byquery" style="display:none">
+      <div class="query-input-label" style="margin-top:10px">Body</div>
+      <textarea class="request-area" rows="3" readonly>{
+  "q": "type:contract"
+}</textarea>
+    </div>
+    <div class="curl-area" id="curl-byquery">
+      <div class="curl-label">curl<span class="copy-hint">click to copy</span></div>
+      <pre></pre>
+    </div>
+    <button class="submit-btn" data-panel="byquery">Submit<span class="spinner"></span></button>
+    <div class="response-area" id="resp-byquery">
       <div class="response-label">Response<span class="response-time"></span></div>
       <pre>Click Submit to send a request.</pre>
     </div>
@@ -329,7 +457,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 
   <p>Returns a single event object. The <code>:id</code> is the opaque event ID from list responses (e.g. <code>evt_yGrddDfumfmdgBDNdtycxRy</code>).</p>
 
-  <h3>Response</h3>
+  <h3 id="event-response">Response</h3>
   <pre>{
   "object": "event",
   "id": "evt_yGrddDfumfmdgBDNdtycxRy",
@@ -343,7 +471,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   "data": {"i128": {"hi": 0, "lo": 1000000}}
 }</pre>
 
-  <h3>Try it</h3>
+  <h3 id="event-try-it">Try it</h3>
   <div class="request-get" id="req-get-getbyid">
     <textarea class="request-area" rows="1">/events/evt_yGrddDfumfmdgBDNdtycxRy</textarea>
   </div>
@@ -369,7 +497,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   </summary>
   <div class="endpoint-body">
 
-  <h3>Response</h3>
+  <h3 id="health-response">Response</h3>
   <pre>{
   "status": "ok",
   "latest_ledger": 12345,
@@ -377,7 +505,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
   "network_passphrase": "..."
 }</pre>
 
-  <h3>Try it</h3>
+  <h3 id="health-try-it">Try it</h3>
   <div class="request-get" id="req-get-health">
     <textarea class="request-area" rows="1">/health</textarea>
   </div>
@@ -421,9 +549,63 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
     }
   }
 
+  // Auto-resize a textarea to fit its content.
+  function autoResize(ta) {
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+  }
+
   // Build curl for all panels on load
-  var panels = ['latest','bytype','bytopics','bycontract','byledger','pagination','getbyid','health'];
+  var panels = ['latest','bytype','bytopics','bycontract','byledger','byquery','pagination','getbyid','health'];
   panels.forEach(buildCurl);
+
+  // Size all textareas on load and auto-resize on input.
+  document.querySelectorAll('.request-area').forEach(function(ta) {
+    autoResize(ta);
+    ta.addEventListener('input', function() { autoResize(ta); });
+    ta.addEventListener('paste', function() { setTimeout(function() { autoResize(ta); }, 0); });
+  });
+
+  // By-query panel: sync query input to path/body/curl
+  var queryInput = document.getElementById('query-input');
+  function updateByQueryPanel() {
+    var q = queryInput.value.trim();
+    var getTA = document.querySelector('#req-get-byquery .request-area');
+    var postTA = document.querySelector('#req-post-byquery .request-area');
+    if (q) {
+      getTA.value = '/events?q=' + encodeURIComponent(q);
+      postTA.value = JSON.stringify({ q: q }, null, 2);
+    } else {
+      getTA.value = '/events';
+      postTA.value = '{}';
+    }
+    autoResize(getTA);
+    autoResize(postTA);
+    buildCurl('byquery');
+  }
+  queryInput.addEventListener('input', updateByQueryPanel);
+  queryInput.addEventListener('paste', function() { setTimeout(updateByQueryPanel, 0); });
+
+  // "try it" links in examples → prefill By query panel
+  document.querySelectorAll('.try-it-link').forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      var query = link.nextElementSibling.textContent;
+      queryInput.value = query;
+      autoResize(queryInput);
+      updateByQueryPanel();
+      // Switch to the "By query" tab
+      var tabGroup = document.querySelector('.tabs[data-group="events-list"]');
+      tabGroup.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+      var container = tabGroup.parentElement;
+      container.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+      tabGroup.querySelector('[data-tab="byquery"]').classList.add('active');
+      var panel = document.getElementById('panel-byquery');
+      panel.classList.add('active');
+      panel.querySelectorAll('.request-area').forEach(autoResize);
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
 
   // Copy curl on click
   document.querySelectorAll('.curl-area pre').forEach(function(pre) {
@@ -437,8 +619,7 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
 
   // Rebuild curl when textarea changes
   document.querySelectorAll('.request-area').forEach(function(ta) {
-    ta.addEventListener('input', function() {
-      // Find panel ID from closest parent with an id like req-get-<panel> or by looking at response area
+    function rebuildForTA() {
       var parent = ta.closest('.tab-panel') || ta.closest('.endpoint-body');
       if (!parent) return;
       var respArea = parent.querySelector('.response-area');
@@ -446,7 +627,9 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
         var panelId = respArea.id.replace('resp-', '');
         buildCurl(panelId);
       }
-    });
+    }
+    ta.addEventListener('input', rebuildForTA);
+    ta.addEventListener('paste', function() { setTimeout(rebuildForTA, 0); });
   });
 
   // Tabs (scoped to tab groups)
@@ -459,7 +642,9 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       var container = tabGroup.parentElement;
       container.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
       btn.classList.add('active');
-      container.querySelector('#panel-' + btn.dataset.tab).classList.add('active');
+      var activePanel = container.querySelector('#panel-' + btn.dataset.tab);
+      activePanel.classList.add('active');
+      activePanel.querySelectorAll('.request-area').forEach(autoResize);
     });
   });
 
@@ -477,11 +662,22 @@ summary p{margin:0;color:#8b949e;font-size:13px;font-weight:400;margin-left:auto
       if (method === 'GET') {
         getEl.style.display = '';
         postEl.style.display = 'none';
+        getEl.querySelectorAll('.request-area').forEach(autoResize);
       } else {
         getEl.style.display = 'none';
         postEl.style.display = '';
+        postEl.querySelectorAll('.request-area').forEach(autoResize);
       }
       buildCurl(panel);
+    });
+  });
+
+  // Resize textareas when a collapsed <details> is opened.
+  document.querySelectorAll('details').forEach(function(d) {
+    d.addEventListener('toggle', function() {
+      if (d.open) {
+        d.querySelectorAll('.request-area').forEach(autoResize);
+      }
     });
   });
 

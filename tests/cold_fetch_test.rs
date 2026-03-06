@@ -89,7 +89,7 @@ fn build_test_ledger_compressed(ledger_seq: u32, num_txs: usize, events_per_tx: 
         },
         tx_set_result_hash: Hash([0; 32]),
         bucket_list_hash: Hash([0; 32]),
-        ledger_seq: ledger_seq,
+        ledger_seq,
         total_coins: 0,
         fee_pool: 0,
         inflation_seq: 0,
@@ -202,7 +202,7 @@ async fn test_cold_fetch_latency() {
 
         let start = std::time::Instant::now();
         let resp = client
-            .get(format!("{}/events?ledger=1000&limit=100", base_url))
+            .get(format!("{}/events?q=ledger%3A1000&limit=100", base_url))
             .send()
             .await
             .unwrap();
@@ -290,12 +290,13 @@ async fn test_cold_fetch_breakdown() {
             limit: 100,
             after: None,
             before: None,
-            ledger: Some(1000),
-            tx: None,
-            filters: vec![],
+            filters: vec![stellar_events_api::db::EventFilter {
+                ledger: Some(1000),
+                ..Default::default()
+            }],
         };
         let s = std::time::Instant::now();
-        let result = store.query_events(&params).unwrap();
+        let result = store.query_single_ledger(1000, &params).unwrap();
         t_query.push(s.elapsed());
 
         assert_eq!(result.data.len(), 50);
@@ -308,7 +309,7 @@ async fn test_cold_fetch_breakdown() {
         t_json.push(s.elapsed());
     }
 
-    fn p50_us(v: &mut Vec<Duration>) -> u128 {
+    fn p50_us(v: &mut [Duration]) -> u128 {
         v.sort();
         v[v.len() / 2].as_micros()
     }
