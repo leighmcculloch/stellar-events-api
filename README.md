@@ -1,5 +1,7 @@
 # stellar-events-api
 
+https://stellar-events-api.fly.dev
+
 An HTTP API for querying contract events from the Stellar network.
 
 Reads ledger data from Stellar's public ledger metadata archive (per [SEP-54](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0054.md)), extracts contract events, and exposes them through a paginated REST API.
