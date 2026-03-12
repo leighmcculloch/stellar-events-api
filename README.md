@@ -1,6 +1,6 @@
 # stellar-events-api
 
-https://stellar-events-api.fly.dev
+🌏 https://stellar-events-api.fly.dev
 
 An HTTP API for querying contract events from the Stellar network.
 
